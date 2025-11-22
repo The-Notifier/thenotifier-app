@@ -189,7 +189,7 @@ export const archiveScheduledNotifications = async () => {
       FROM scheduledNotification
       WHERE scheduleDateTime > CURRENT_TIMESTAMP;`);
     console.log('Archived scheduled notification data successfully');
-    await db.execAsync(`DELETE FROM scheduledNotification WHERE scheduleDateTime > CURRENT_TIMESTAMP;`);
+    await db.execAsync(`DELETE FROM scheduledNotification WHERE scheduleDateTime < CURRENT_TIMESTAMP;`);
     console.log('Deleted scheduled notification data successfully');
   } catch (error: any) {
     console.error('Failed to archive scheduled notification data:', error);
@@ -208,6 +208,21 @@ export const updateArchivedNotificationData = async (notificationId: string) => 
   } catch (error: any) {
     console.error('Failed to update archived notification data:', error);
     throw new Error(`Failed to update archived notification data: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get all archived notification data
+export const getAllArchivedNotificationData = async () => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string; handledAt: string | null; cancelledAt: string | null; archivedAt: string }>(
+      `SELECT id, notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt, handledAt, cancelledAt, archivedAt FROM archivedNotification ORDER BY archivedAt DESC;`
+    );
+    return result || [];
+  } catch (error: any) {
+    console.error('Failed to get all archived notification data:', error);
+    return [];
   }
 };
 
