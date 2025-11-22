@@ -89,13 +89,10 @@ export const saveScheduledNotificationData = async (notificationId: string, titl
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    // Then delete any existing data
-    await db.execAsync('DELETE FROM scheduledNotification;');
-
-    // Then insert new data
+    // Use INSERT OR REPLACE to either insert new or update existing notification
     await db.execAsync(
-      `INSERT INTO scheduledNotification (notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal)
-      VALUES ('${notificationId}', '${title}', '${shortMessage}', '${longMessage}', '${link}', '${scheduleDateTime}', '${scheduleDateTimeLocal}');`
+      `INSERT OR REPLACE INTO scheduledNotification (notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, updatedAt)
+      VALUES ('${notificationId}', '${title}', '${shortMessage}', '${longMessage}', '${link}', '${scheduleDateTime}', '${scheduleDateTimeLocal}', CURRENT_TIMESTAMP);`
     );
     console.log('Notification data saved successfully');
     const result = await getScheduledNotificationData(notificationId);
@@ -127,13 +124,49 @@ export const getAllScheduledNotificationData = async () => {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    const result = await db.getFirstAsync<{ notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
-      `SELECT notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification;`
+    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
+      `SELECT id, notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification ORDER BY scheduleDateTime ASC;`
     );
-    return result || null;
+    return result || [];
   } catch (error: any) {
     console.error('Failed to get all scheduled notification data:', error);
-    return null;
+    return [];
+  }
+};
+
+// Delete scheduled notification
+export const deleteScheduledNotification = async (notificationId: string) => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    await db.execAsync(`DELETE FROM scheduledNotification WHERE notificationId = '${notificationId}';`);
+    console.log('Scheduled notification deleted successfully');
+  } catch (error: any) {
+    console.error('Failed to delete scheduled notification:', error);
+    throw new Error(`Failed to delete scheduled notification: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Update scheduled notification data
+export const updateScheduledNotificationData = async (notificationId: string, title: string, shortMessage: string, longMessage: string, link: string, scheduleDateTime: string, scheduleDateTimeLocal: string) => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    await db.execAsync(
+      `UPDATE scheduledNotification 
+       SET title = '${title}', 
+           shortMessage = '${shortMessage}', 
+           longMessage = '${longMessage}', 
+           link = '${link}', 
+           scheduleDateTime = '${scheduleDateTime}', 
+           scheduleDateTimeLocal = '${scheduleDateTimeLocal}',
+           updatedAt = CURRENT_TIMESTAMP
+       WHERE notificationId = '${notificationId}';`
+    );
+    console.log('Scheduled notification data updated successfully');
+  } catch (error: any) {
+    console.error('Failed to update scheduled notification data:', error);
+    throw new Error(`Failed to update scheduled notification data: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
