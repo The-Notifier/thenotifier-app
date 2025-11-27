@@ -1,12 +1,12 @@
-# NotifyMe
+# The Notifier
 
-NotifyMe mobile app written in Expo.
+The Notifier mobile app written in Expo.
 
 ## Installing for local development
 
 1. Clone the repo
 2. Run: `npm install` to install dependencies
-3. Open `./ios/notifyme.xcodeproj` in Xcode to confirm the team, bundle ID and provisioning profile are properly configured
+3. Open `./ios/thenotifier.xcodeproj` in Xcode to confirm the team, bundle ID and provisioning profile are properly configured
 
 ## Run the app
 

@@ -200,7 +200,7 @@ export default function NotificationScreen() {
         await Notifications.setNotificationChannelAsync('thenotifier', {
           name: 'The Notifier notifications',
           importance: Notifications.AndroidImportance.HIGH,
-          sound: 'notifyme.wav', // Provide ONLY the base filename
+          sound: 'thenotifier.wav', // Provide ONLY the base filename
         });
       }
 
@@ -219,7 +219,7 @@ export default function NotificationScreen() {
             url: deepLinkUrl
           },
           vibrate: [0, 1000, 500, 1000],
-          sound: 'notifyme.wav'
+          sound: 'thenotifier.wav'
         },
         trigger: {
           type: Notifications.SchedulableTriggerInputTypes.DATE,

@@ -49,10 +49,8 @@ app-example
 
 # Keep mods to info.plist and AndroidManifest.xml
 # Un-ignore parent directories first, then the specific files
-# !/ios/
 !/ios/TheNotifier/
 !/ios/TheNotifier/Info.plist
-!/android/
 !/android/app/
 !/android/app/src/
 !/android/app/src/main/

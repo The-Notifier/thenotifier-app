@@ -53,14 +53,15 @@
           "color": "#ffffff",
           "vibrate": false,
           "sounds": [
-            "./assets/sounds/notifyme.wav"
+            "./assets/sounds/notifyme.wav",
+            "./assets/sounds/thenotifier.wav"
           ],
           "channels": [
             {
-              "id": "notifyme",
+              "id": "thenotifier",
               "name": "The Notifier notifications",
               "importance": "high",
-              "sound": "notifyme.wav"
+              "sound": "thenotifier.wav"
             }
           ],
           "enableBackgroundRemoteNotifications": true
