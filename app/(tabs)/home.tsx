@@ -14,8 +14,8 @@ type ScheduledNotification = {
   id: number;
   notificationId: string;
   title: string;
-  shortMessage: string;
-  longMessage: string;
+  message: string;
+  note: string;
   link: string;
   scheduleDateTime: string;
   scheduleDateTimeLocal: string;
@@ -27,8 +27,8 @@ type ArchivedNotification = {
   id: number;
   notificationId: string;
   title: string;
-  shortMessage: string;
-  longMessage: string;
+  message: string;
+  note: string;
   link: string;
   scheduleDateTime: string;
   scheduleDateTimeLocal: string;
@@ -208,8 +208,8 @@ export default function HomeScreen() {
             <ThemedText type="defaultSemiBold" style={styles.title}>
               {item.title}
             </ThemedText>
-            <ThemedText style={styles.shortMessage} numberOfLines={2}>
-              {item.shortMessage}
+            <ThemedText style={styles.message} numberOfLines={2}>
+              {item.message}
             </ThemedText>
           </ThemedView>
           <IconSymbol
@@ -241,10 +241,10 @@ export default function HomeScreen() {
 
             <ThemedView style={styles.detailRow}>
               <ThemedText type="subtitle" style={styles.detailLabel}>
-                Long Message:
+                Note:
               </ThemedText>
               <ThemedText style={styles.detailValue}>
-                {item.longMessage}
+                {item.note}
               </ThemedText>
             </ThemedView>
 
@@ -308,8 +308,8 @@ export default function HomeScreen() {
             <ThemedText type="defaultSemiBold" style={styles.title}>
               {item.title}
             </ThemedText>
-            <ThemedText style={styles.shortMessage} numberOfLines={2}>
-              {item.shortMessage}
+            <ThemedText style={styles.message} numberOfLines={2}>
+              {item.message}
             </ThemedText>
           </ThemedView>
           <IconSymbol
@@ -341,10 +341,10 @@ export default function HomeScreen() {
 
             <ThemedView style={styles.detailRow}>
               <ThemedText type="subtitle" style={styles.detailLabel}>
-                Long Message:
+                Note:
               </ThemedText>
               <ThemedText style={styles.detailValue}>
-                {item.longMessage}
+                {item.note}
               </ThemedText>
             </ThemedView>
 
@@ -384,7 +384,7 @@ export default function HomeScreen() {
               styles.tabText,
               activeTab === 'scheduled' && { color: colors.tint },
             ]}>
-            Scheduled
+            Upcoming
           </ThemedText>
         </TouchableOpacity>
         <TouchableOpacity
@@ -400,7 +400,7 @@ export default function HomeScreen() {
               styles.tabText,
               activeTab === 'archived' && { color: colors.tint },
             ]}>
-            Archived
+            Past
           </ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -429,7 +429,7 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <ThemedView style={styles.emptyContainer}>
               <ThemedText style={styles.emptyText}>
-                No scheduled notifications
+                No upcoming notifications
               </ThemedText>
             </ThemedView>
           }
@@ -458,7 +458,7 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <ThemedView style={styles.emptyContainer}>
               <ThemedText style={styles.emptyText}>
-                No archived notifications
+                No sent notifications
               </ThemedText>
             </ThemedView>
           }
@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 4,
   },
-  shortMessage: {
+  message: {
     fontSize: 14,
     opacity: 0.8,
   },

@@ -8,8 +8,10 @@ import { Stack, useRouter } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useRef } from 'react';
-import { AppState, InteractionManager } from 'react-native';
+import { AppState } from 'react-native';
+import { KeyboardProvider } from "react-native-keyboard-controller";
 import 'react-native-reanimated';
+
 
 // Keep the splash screen visible while we fetch resources
 SplashScreen.preventAutoHideAsync();
@@ -38,9 +40,11 @@ export default function RootLayout() {
 
   // Helper function to handle notification navigation
   const handleNotificationNavigation = useCallback(async (notification: Notifications.Notification, actionIdentifier: string) => {
-    const notificationId = notification.request.identifier;
     console.log('handleNotificationNavigation: Notification received:', notification);
     console.log('handleNotificationNavigation: Action identifier:', actionIdentifier);
+
+    const notificationId = notification.request.identifier;
+
     console.log('handleNotificationNavigation: Notification ID:', notificationId);
     console.log('handleNotificationNavigation: App state:', AppState.currentState);
 
@@ -70,40 +74,49 @@ export default function RootLayout() {
           console.error('handleNotificationNavigation: Failed to update archived notification data:', e);
         }
 
-        // Wait for app to be active and interactions to complete before navigating
-        const navigateToNotification = () => {
-          try {
-            // Use replace to ensure it shows even when coming from background
-            router.replace({
-              pathname: '/notification-display',
-              params: {
-                message: data.message as string,
-                link: (data.link as string) || ''
-              },
-            });
-            console.log('handleNotificationNavigation: Navigation triggered with replace');
-          } catch (error) {
-            console.error('handleNotificationNavigation: Navigation error:', error);
-            // Fallback: try push
-            try {
-              router.push({
-                pathname: '/notification-display',
-                params: {
-                  message: data.message as string,
-                  link: (data.link as string) || ''
-                },
-              });
-              console.log('handleNotificationNavigation: Navigation triggered with push (fallback)');
-            } catch (pushError) {
-              console.error('handleNotificationNavigation: Push navigation also failed:', pushError);
-            }
-          }
-        };
+        // Small delay to ensure navigation is ready
+        setTimeout(() => {
+          router.push({
+            pathname: '/notification-display',
+            params: { title: data.title as string, message: data.message as string, note: data.note as string, link: data.link as string },
+          });
+        }, 100);
 
-        // Wait for interactions to complete and navigate
-        InteractionManager.runAfterInteractions(() => {
-          setTimeout(navigateToNotification, 200);
-        });
+        //   // Wait for app to be active and interactions to complete before navigating
+        //   const navigateToNotification = () => {
+        //     try {
+        //       // Use replace to ensure it shows even when coming from background
+        //       router.replace({
+        //         pathname: '/notification-display',
+        //         params: {
+        //           message: data.message as string,
+        //           link: (data.link as string) || ''
+        //         },
+        //       });
+        //       console.log('handleNotificationNavigation: Navigation triggered with replace');
+        //     } catch (error) {
+        //       console.error('handleNotificationNavigation: Navigation error:', error);
+        //       // Fallback: try push
+        //       try {
+        //         router.push({
+        //           pathname: '/notification-display',
+        //           params: {
+        //             message: data.message as string,
+        //             link: (data.link as string) || ''
+        //           },
+        //         });
+        //         console.log('handleNotificationNavigation: Navigation triggered with push (fallback)');
+        //       } catch (pushError) {
+        //         console.error('handleNotificationNavigation: Push navigation also failed:', pushError);
+        //       }
+        //     }
+        //   };
+
+        //   // Wait for interactions to complete and navigate
+        //   InteractionManager.runAfterInteractions(() => {
+        //     setTimeout(navigateToNotification, 200);
+        //   });
+
       }
     }
   }, [router]);
@@ -126,10 +139,7 @@ export default function RootLayout() {
       // Only process if we haven't already handled this notification
       if (!handledNotificationsRef.current.has(notificationId)) {
         console.log('Processing lastNotificationResponse - calling handleNotificationNavigation');
-        // Add a small delay to ensure app is ready
-        setTimeout(() => {
-          handleNotificationNavigation(notification, actionIdentifier);
-        }, 100);
+        handleNotificationNavigation(notification, actionIdentifier);
       } else {
         console.log('LastNotificationResponse already handled, skipping');
       }
@@ -195,20 +205,21 @@ export default function RootLayout() {
   }
 
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        <Stack.Screen
-          name="notification-display"
-          options={{
-            presentation: 'modal',
-            title: 'Notification',
-            headerShown: true,
-          }}
-        />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <KeyboardProvider>
+      <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+        <Stack>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen
+            name="notification-display"
+            options={{
+              presentation: 'modal',
+              title: 'Notification',
+              headerShown: true,
+            }}
+          />
+        </Stack>
+        <StatusBar style="auto" />
+      </ThemeProvider>
+    </KeyboardProvider>
   );
 }

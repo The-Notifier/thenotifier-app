@@ -1,0 +1,107 @@
+diff --git a/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift b/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
+index cc2fd9b..fb4212f 100644
+--- a/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
++++ b/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
+@@ -6,9 +6,12 @@ class NotificationFallback: NSObject {
+     weak var delegate: AlarmDelegate?
+     private let notificationCenter = UNUserNotificationCenter.current()
+     private var alarmStore: [String: [String: Any]] = [:]
++    private weak var previousDelegate: UNUserNotificationCenterDelegate?
+ 
+     override init() {
+         super.init()
++        // Preserve any existing delegate (e.g. expo-notifications) so we can forward calls.
++        previousDelegate = notificationCenter.delegate as? UNUserNotificationCenterDelegate
+         notificationCenter.delegate = self
+     }
+ 
+@@ -178,9 +181,36 @@ class NotificationFallback: NSObject {
+         let hour = time?["hour"] as? Int ?? 8
+         let minute = time?["minute"] as? Int ?? 0
+         
++        // Extract date components for one-time alarm
+         var dateComponents = DateComponents()
+-        dateComponents.hour = hour
+-        dateComponents.minute = minute
++        
++        // Extract date from schedule - React Native passes Date as timestamp (Double)
++        if let dateTimestamp = schedule["date"] as? Double {
++            // Date is passed as milliseconds timestamp from JavaScript
++            let dateValue = Date(timeIntervalSince1970: dateTimestamp / 1000.0)
++            let calendar = Calendar.current
++            dateComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: dateValue)
++        } else if let dateValue = schedule["date"] as? Date {
++            // Direct Date object (shouldn't happen but handle it)
++            let calendar = Calendar.current
++            dateComponents = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: dateValue)
++        } else {
++            // No date provided - use today's date with the specified time
++            // If time has already passed today, use tomorrow
++            let calendar = Calendar.current
++            let now = Date()
++            var components = calendar.dateComponents([.year, .month, .day], from: now)
++            components.hour = hour
++            components.minute = minute
++            
++            if let scheduledDate = calendar.date(from: components), scheduledDate < now {
++                // Time has passed today, schedule for tomorrow
++                if let tomorrow = calendar.date(byAdding: .day, value: 1, to: scheduledDate) {
++                    components = calendar.dateComponents([.year, .month, .day, .hour, .minute], from: tomorrow)
++                }
++            }
++            dateComponents = components
++        }
+ 
+         let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
+         let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
+@@ -366,7 +396,15 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+         willPresent notification: UNNotification,
+         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+     ) {
+-        // Show notification even when app is in foreground
++        // If there was a previous delegate (e.g. expo-notifications), forward to it so it
++        // can handle the notification as well. Let the previous delegate decide how to
++        // call the completion handler.
++        if let previousDelegate = previousDelegate {
++            previousDelegate.userNotificationCenter?(center, willPresent: notification, withCompletionHandler: completionHandler)
++            return
++        }
++
++        // Fallback behavior: show notification even when app is in foreground
+         completionHandler([.banner, .sound, .badge])
+     }
+ 
+@@ -378,11 +416,16 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+         let userInfo = response.notification.request.content.userInfo
+ 
+         guard let alarmId = userInfo["alarmId"] as? String else {
+-            completionHandler()
++            // Not one of our alarms – forward to previous delegate if any, otherwise just complete.
++            if let previousDelegate = previousDelegate {
++                previousDelegate.userNotificationCenter?(center, didReceive: response, withCompletionHandler: completionHandler)
++            } else {
++                completionHandler()
++            }
+             return
+         }
+ 
+-        // Handle action
++        // Handle action for our alarm
+         let actionId = response.actionIdentifier
+ 
+         if actionId == UNNotificationDefaultActionIdentifier {
+@@ -393,7 +436,13 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+             notifyAlarmFired(alarmId: alarmId, actionId: actionId)
+         }
+ 
+-        completionHandler()
++        // Also forward the response to any previous delegate (e.g. expo-notifications) so
++        // it can emit JS events. Let it manage the completion handler.
++        if let previousDelegate = previousDelegate {
++            previousDelegate.userNotificationCenter?(center, didReceive: response, withCompletionHandler: completionHandler)
++        } else {
++            completionHandler()
++        }
+     }
+ 
+     private func notifyAlarmFired(alarmId: String, actionId: String?) {

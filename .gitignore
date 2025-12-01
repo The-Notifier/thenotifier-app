@@ -6,7 +6,7 @@
 # Keep mods made to rn-native-alarmkit
 !/node_modules/rn-native-alarmkit/
 !/node_modules/rn-native-alarmkit/ios/
-!/node_modules/rn-native-alarmkit/ios/AlarmKitManager.swift
+!/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
 
 # Expo
 .expo/
@@ -46,12 +46,3 @@ app-example
 # generated native folders
 /ios/*
 /android/*
-
-# Keep mods to info.plist and AndroidManifest.xml
-# Un-ignore parent directories first, then the specific files
-!/ios/TheNotifier/
-!/ios/TheNotifier/Info.plist
-!/android/app/
-!/android/app/src/
-!/android/app/src/main/
-!/android/app/src/main/AndroidManifest.xml
