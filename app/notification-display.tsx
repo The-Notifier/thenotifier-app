@@ -108,7 +108,10 @@ export default function NotificationDisplayScreen() {
       <ThemedView style={styles.content}>
         <ThemedText type="title" style={styles.title}>Notification</ThemedText>
         <ThemedView style={styles.messageContainer}>
+          <ThemedText type="subtitle">Message:</ThemedText>
           <ThemedText style={styles.message}>{message || 'No message available'}</ThemedText>
+          <ThemedText type="subtitle">Note:</ThemedText>
+          <ThemedText style={styles.note}>{note || 'No note available'}</ThemedText>
         </ThemedView>
         {link && (
           <TouchableOpacity
@@ -149,6 +152,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(56, 76, 121, 0.45)',
   },
   message: {
+    fontSize: 16,
+    lineHeight: 24,
+    marginBottom: 14,
+  },
+  note: {
     fontSize: 16,
     lineHeight: 24,
   },

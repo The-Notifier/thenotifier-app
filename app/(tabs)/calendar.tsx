@@ -338,8 +338,9 @@ export default function CalendarScreen() {
     // Try using React Navigation's navigate method for tab navigation
     const params = {
       date: event.startDate.toISOString(),
-      shortMessage: event.title,
-      longMessage: event.description || '',
+      title: 'Calendar: ' + event.calendarName,
+      message: event.title,
+      note: '(click the button to open your calendar)',
       link: calendarLink,
     };
 

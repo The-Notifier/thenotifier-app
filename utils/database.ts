@@ -28,8 +28,8 @@ export const initDatabase = async () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         notificationId TEXT NOT NULL,
         title TEXT NOT NULL,
-        shortMessage TEXT NOT NULL,
-        longMessage TEXT NOT NULL,
+        message TEXT NOT NULL,
+        note TEXT DEFAULT NULL,
         link TEXT DEFAULT NULL,
         scheduleDateTime TEXT NOT NULL,
         scheduleDateTimeLocal TEXT NOT NULL,
@@ -53,8 +53,8 @@ export const initDatabase = async () => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         notificationId TEXT NOT NULL,
         title TEXT NOT NULL,
-        shortMessage TEXT NOT NULL,
-        longMessage TEXT NOT NULL,
+        message TEXT NOT NULL,
+        note TEXT DEFAULT NULL,
         link TEXT DEFAULT NULL,
         scheduleDateTime TEXT NOT NULL,
         scheduleDateTimeLocal TEXT NOT NULL,
@@ -84,15 +84,16 @@ export const initDatabase = async () => {
 };
 
 // Save scheduled notification data
-export const saveScheduledNotificationData = async (notificationId: string, title: string, shortMessage: string, longMessage: string, link: string, scheduleDateTime: string, scheduleDateTimeLocal: string) => {
+export const saveScheduledNotificationData = async (notificationId: string, title: string, message: string, note: string, link: string, scheduleDateTime: string, scheduleDateTimeLocal: string) => {
+  console.log('Saving scheduled notification data:', { notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal });
   try {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
     // Use INSERT OR REPLACE to either insert new or update existing notification
     await db.execAsync(
-      `INSERT OR REPLACE INTO scheduledNotification (notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, updatedAt)
-      VALUES ('${notificationId}', '${title}', '${shortMessage}', '${longMessage}', '${link}', '${scheduleDateTime}', '${scheduleDateTimeLocal}', CURRENT_TIMESTAMP);`
+      `INSERT OR REPLACE INTO scheduledNotification (notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, updatedAt)
+      VALUES ('${notificationId}', '${title}', '${message}', '${note}', '${link}', '${scheduleDateTime}', '${scheduleDateTimeLocal}', CURRENT_TIMESTAMP);`
     );
     console.log('Notification data saved successfully');
     const result = await getScheduledNotificationData(notificationId);
@@ -108,8 +109,8 @@ export const getScheduledNotificationData = async (notificationId: string) => {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    const result = await db.getFirstAsync<{ notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
-      `SELECT notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification WHERE notificationId = '${notificationId}';`
+    const result = await db.getFirstAsync<{ notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
+      `SELECT notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification WHERE notificationId = '${notificationId}';`
     );
     return result || null;
   } catch (error: any) {
@@ -124,8 +125,8 @@ export const getAllScheduledNotificationData = async () => {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
-      `SELECT id, notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification ORDER BY scheduleDateTime ASC;`
+    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string }>(
+      `SELECT id, notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt FROM scheduledNotification ORDER BY scheduleDateTime ASC;`
     );
     return result || [];
   } catch (error: any) {
@@ -148,15 +149,15 @@ export const deleteScheduledNotification = async (notificationId: string) => {
 };
 
 // Update scheduled notification data
-export const updateScheduledNotificationData = async (notificationId: string, title: string, shortMessage: string, longMessage: string, link: string, scheduleDateTime: string, scheduleDateTimeLocal: string) => {
+export const updateScheduledNotificationData = async (notificationId: string, title: string, message: string, note: string, link: string, scheduleDateTime: string, scheduleDateTimeLocal: string) => {
   try {
     const db = await openDatabase();
     await initDatabase();
     await db.execAsync(
       `UPDATE scheduledNotification 
        SET title = '${title}', 
-           shortMessage = '${shortMessage}', 
-           longMessage = '${longMessage}', 
+           message = '${message}', 
+           note = '${note}', 
            link = '${link}', 
            scheduleDateTime = '${scheduleDateTime}', 
            scheduleDateTimeLocal = '${scheduleDateTimeLocal}',
@@ -178,12 +179,12 @@ export const archiveScheduledNotifications = async () => {
     // Get current time in ISO format for comparison
     const now = new Date().toISOString();
     // Archive notifications that have passed (scheduleDateTime < now)
-    await db.execAsync(`INSERT OR REPLACE INTO archivedNotification (notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt) 
+    await db.execAsync(`INSERT OR REPLACE INTO archivedNotification (notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt) 
       SELECT
         notificationId,
         title,
-        shortMessage,
-        longMessage,
+        message,
+        note,
         link,
         scheduleDateTime,
         scheduleDateTimeLocal,
@@ -220,8 +221,8 @@ export const getAllArchivedNotificationData = async () => {
   try {
     const db = await openDatabase();
     await initDatabase();
-    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string; handledAt: string | null; cancelledAt: string | null; archivedAt: string }>(
-      `SELECT id, notificationId, title, shortMessage, longMessage, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt, handledAt, cancelledAt, archivedAt FROM archivedNotification ORDER BY archivedAt DESC;`
+    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string; handledAt: string | null; cancelledAt: string | null; archivedAt: string }>(
+      `SELECT id, notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, createdAt, updatedAt, handledAt, cancelledAt, archivedAt FROM archivedNotification ORDER BY archivedAt DESC;`
     );
     return result || [];
   } catch (error: any) {
@@ -236,7 +237,7 @@ export const getArchivedNotificationData = async (notificationId: string) => {
     const db = await openDatabase();
     await initDatabase();
     // console.log('Getting archived notification data for notificationId:', notificationId);
-    const result = await db.getFirstAsync<{ notificationId: string; title: string; shortMessage: string; longMessage: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string; handledAt: string }>(
+    const result = await db.getFirstAsync<{ notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; createdAt: string; updatedAt: string; handledAt: string }>(
       `SELECT * FROM archivedNotification WHERE notificationId = '${notificationId}';`
     );
     console.log('Archived notification data:', result);
