@@ -386,10 +386,13 @@ export default function CalendarScreen() {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
 
+    const maxDrawerHeight = item.location ? 190 : 120;
+
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [0, 250],
+      outputRange: [0, maxDrawerHeight],
     });
+
 
     const opacity = animValue.interpolate({
       inputRange: [0, 1],
@@ -431,7 +434,7 @@ export default function CalendarScreen() {
             },
           ]}>
           <ThemedView style={styles.drawerContent}>
-            {item.description && (
+            {/* {item.description && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" style={styles.detailLabel}>
                   Description:
@@ -440,14 +443,17 @@ export default function CalendarScreen() {
                   {item.description}
                 </ThemedText>
               </ThemedView>
-            )}
+            )} */}
 
             {item.location && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" style={styles.detailLabel}>
                   Location:
                 </ThemedText>
-                <ThemedText style={styles.detailValue}>
+                <ThemedText
+                  style={styles.detailValue}
+                  numberOfLines={2}
+                  ellipsizeMode="tail">
                   {item.location}
                 </ThemedText>
               </ThemedView>
@@ -660,7 +666,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   drawerContent: {
-    padding: 16,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
     gap: 12,
   },
   detailRow: {
