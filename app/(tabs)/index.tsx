@@ -1,8 +1,8 @@
 import DateTimePicker from '@react-native-community/datetimepicker';
 import * as Notifications from 'expo-notifications';
 import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useRef, useState } from 'react';
-import { Alert, Dimensions, Keyboard, Platform, ScrollView, StyleSheet, Switch, TextInput, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, Dimensions, Keyboard, Platform, StyleSheet, Switch, TextInput, TouchableOpacity, TouchableWithoutFeedback } from 'react-native';
 import { NativeAlarmManager } from 'rn-native-alarmkit';
 
 import { ThemedText } from '@/components/themed-text';
@@ -11,8 +11,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { archiveScheduledNotifications, saveScheduledNotificationData } from '@/utils/database';
 import * as Crypto from 'expo-crypto';
-import { KeyboardAwareScrollView, KeyboardToolbar } from 'react-native-keyboard-controller';
-
+import { DefaultKeyboardToolbarTheme, KeyboardAwareScrollView, KeyboardToolbar, KeyboardToolbarProps } from 'react-native-keyboard-controller';
 
 // Configure notification handler
 Notifications.setNotificationHandler({
@@ -44,6 +43,18 @@ const unsubscribe = NativeAlarmManager.onAlarmFired((event) => {
 // Later: cleanup
 unsubscribe();
 
+const theme: KeyboardToolbarProps["theme"] = {
+  dark: {
+    ...DefaultKeyboardToolbarTheme.dark,
+    primary: "#8ddaff",
+    background: "#1d1d1d",
+  },
+  light: {
+    ...DefaultKeyboardToolbarTheme.light,
+    primary: "#242424",
+    background: "#D0E8FC",
+  },
+};
 
 export default function NotificationScreen() {
   const params = useLocalSearchParams<{
@@ -65,7 +76,7 @@ export default function NotificationScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
-  const scrollViewRef = useRef<ScrollView>(null);
+  const scrollViewRef = useRef<any>(null);
   const messageInputRef = useRef<TextInput>(null);
   const noteInputRef = useRef<TextInput>(null);
   const linkInputRef = useRef<TextInput>(null);
@@ -76,6 +87,9 @@ export default function NotificationScreen() {
   const hasScrolledForFocus = useRef<boolean>(false);
   const [scheduleAlarm, setScheduleAlarm] = useState(false);
   const [alarmSupported, setAlarmSupported] = useState(false);
+
+  // Memoize minimum date to prevent creating new Date object on each render
+  const minimumDate = useMemo(() => new Date(), []);
 
   useEffect(() => {
     // Request permissions
@@ -124,8 +138,36 @@ export default function NotificationScreen() {
     }
   }, [params.date, params.title, params.message, params.note, params.link]);
 
+  // Memoize form onLayout handler
+  const handleFormLayout = useCallback((event: any) => {
+    // Track form's top position in ScrollView content
+    // onLayout gives position relative to ScrollView content (which includes padding)
+    const { y } = event.nativeEvent.layout;
+    formTopInContent.current = y;
+  }, []);
+
+  // Memoize button onLayout handler
+  const handleButtonLayout = useCallback((event: any) => {
+    // Track button's bottom position relative to form top
+    const { y, height } = event.nativeEvent.layout;
+    buttonBottomInForm.current = y + height;
+  }, []);
+
+  // Memoize DateTimePicker onChange handler
+  const handleDateChange = useCallback((event: any, date?: Date) => {
+    if (Platform.OS === 'android') {
+      setShowDatePicker(false);
+    }
+    if (event.type === 'set' && date) {
+      setSelectedDate(date);
+    }
+    if (Platform.OS === 'android' && event.type === 'dismissed') {
+      setShowDatePicker(false);
+    }
+  }, []);
+
   // Helper function to scroll to show the button above keyboard
-  const scrollToShowButton = (keyboardHeight: number) => {
+  const scrollToShowButton = useCallback((keyboardHeight: number) => {
     // Ensure positions are measured
     if (formTopInContent.current === 0 || buttonBottomInForm.current === 0) {
       // console.log('Positions not yet measured, retrying...');
@@ -153,7 +195,83 @@ export default function NotificationScreen() {
       y: Math.max(0, targetScrollY),
       animated: true,
     });
-  };
+  }, []);
+
+  // Memoize inline style objects
+  const dateButtonStyle = useMemo(() => [
+    styles.dateButton,
+    { borderColor: colors.icon, backgroundColor: colors.background }
+  ], [colors.icon, colors.background]);
+
+  const doneButtonStyle = useMemo(() => [
+    styles.button,
+    { backgroundColor: colors.tint, marginTop: 10 }
+  ], [colors.tint]);
+
+  const inputStyle = useMemo(() => [
+    styles.input,
+    { color: colors.text, borderColor: colors.icon }
+  ], [colors.text, colors.icon]);
+
+  const textAreaStyle = useMemo(() => [
+    styles.input,
+    styles.textArea,
+    { color: colors.text, borderColor: colors.icon }
+  ], [colors.text, colors.icon]);
+
+  const scheduleButtonStyle = useMemo(() => [
+    styles.button,
+    { backgroundColor: colors.tint }
+  ], [colors.tint]);
+
+  const doneButtonTextStyle = useMemo(() => [
+    styles.buttonText,
+    { color: colors.buttonText }
+  ], [colors.buttonText]);
+
+  const scheduleButtonTextStyle = useMemo(() => [
+    styles.buttonText,
+    { color: colors.buttonText }
+  ], [colors.buttonText]);
+
+  // Memoize callbacks
+  const handleDateButtonPress = useCallback(() => {
+    Keyboard.dismiss();
+    setShowDatePicker(true);
+  }, []);
+
+  const handleDonePress = useCallback(() => {
+    setShowDatePicker(false);
+  }, []);
+
+  const handleLinkFocus = useCallback(() => {
+    // Mark that we're about to scroll for focus
+    hasScrolledForFocus.current = true;
+
+    // Wait for keyboard to appear, then scroll to show button
+    setTimeout(() => {
+      if (keyboardHeightRef.current > 0) {
+        scrollToShowButton(keyboardHeightRef.current);
+      } else {
+        // Fallback: use estimated keyboard height
+        const estimatedKeyboardHeight = Platform.OS === 'ios' ? 336 : 300;
+        scrollToShowButton(estimatedKeyboardHeight);
+      }
+    }, Platform.OS === 'ios' ? 400 : 500);
+  }, [scrollToShowButton]);
+
+  const handleLinkBlur = useCallback(() => {
+    // When input loses focus, scroll to top
+    if (hasScrolledForFocus.current) {
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          y: 0,
+          animated: true,
+        });
+        hasScrolledForFocus.current = false;
+      }, Platform.OS === 'ios' ? 200 : 300);
+    }
+  }, []);
 
   useEffect(() => {
     const keyboardWillShowListener = Keyboard.addListener(
@@ -189,7 +307,7 @@ export default function NotificationScreen() {
       keyboardWillShowListener.remove();
       keyboardWillHideListener.remove();
     };
-  }, []);
+  }, [scrollToShowButton]);
 
   const resetForm = () => {
     setMessage('');
@@ -233,10 +351,9 @@ export default function NotificationScreen() {
       }
 
       // Create deep link URL for notification tap (works when app is backgrounded)
-      const deepLinkUrl = `thenotifier://notification?message=${encodeURIComponent(message)}&link=${encodeURIComponent(link || '')}`;
+      const deepLinkUrl = (link) ? `thenotifier://notification?message=${encodeURIComponent(message)}&link=${encodeURIComponent(link)}` : `thenotifier://notification?message=${encodeURIComponent(message)}`;
       console.log('deepLinkUrl:', deepLinkUrl);
 
-      console.log('=== SCHEDULE NOTIFICATION ASYNC ===');
 
       let notificationContent: Notifications.NotificationContentInput = {
         title: notificationTitle,
@@ -248,23 +365,35 @@ export default function NotificationScreen() {
           link: link ? link : '',
           url: deepLinkUrl
         },
-        vibrate: [0, 1000, 500, 1000],
         sound: 'thenotifier.wav'
       };
+      if (Platform.OS === 'android') {
+        // vibrate is Android-only
+        notificationContent.vibrate = [0, 1000, 500, 1000];
+      }
       if (Platform.OS === 'ios') {
         notificationContent.interruptionLevel = 'timeSensitive';
       }
+      console.log('notificationContent:', notificationContent);
 
+      // Build trigger - channelId is Android-only
+      const trigger: Notifications.NotificationTriggerInput = {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: dateWithoutSeconds,
+      };
+      if (Platform.OS === 'android') {
+        (trigger as any).channelId = "thenotifier";
+      }
+      console.log('trigger:', trigger);
+
+      console.log('=== SCHEDULE NOTIFICATION ASYNC ===');
       await Notifications.scheduleNotificationAsync({
         identifier: notificationId,
         content: notificationContent,
-        trigger: {
-          type: Notifications.SchedulableTriggerInputTypes.DATE,
-          date: dateWithoutSeconds,
-          channelId: "thenotifier"
-        },
+        trigger: trigger,
       });
 
+      console.log('Notification scheduled successfully, saving notification data...');
       await saveScheduledNotificationData(notificationId, notificationTitle, message, note, link ? link : '', dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString());
       console.log('Notification data saved successfully');
 
@@ -443,7 +572,7 @@ export default function NotificationScreen() {
     resetForm();
   };
 
-  const formatDateTime = (date: Date) => {
+  const formatDateTime = useCallback((date: Date) => {
     return date.toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -451,7 +580,7 @@ export default function NotificationScreen() {
       hour: 'numeric',
       minute: '2-digit',
     });
-  };
+  }, []);
 
   useEffect(() => {
     // Check if we need to archive any scheduled notifications
@@ -469,170 +598,112 @@ export default function NotificationScreen() {
       <KeyboardAwareScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        bottomOffset={4}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
-        showsVerticalScrollIndicator={false}
-        scrollEventThrottle={16}>
+        showsVerticalScrollIndicator={false}>
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
-          <ScrollView
-            ref={scrollViewRef}
-            style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            scrollEventThrottle={16}>
 
-            <ThemedView
-              style={styles.form}
-              onLayout={(event) => {
-                // Track form's top position in ScrollView content
-                // onLayout gives position relative to ScrollView content (which includes padding)
-                const { y } = event.nativeEvent.layout;
-                formTopInContent.current = y;
-              }}>
-              <ThemedView style={styles.inputGroup}>
-                <ThemedText type="subtitle">Date & Time</ThemedText>
-                <TouchableOpacity
-                  style={[styles.dateButton, { borderColor: colors.icon, backgroundColor: colors.background }]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setShowDatePicker(true);
-                  }}>
-                  <ThemedText>{formatDateTime(selectedDate)}</ThemedText>
-                </TouchableOpacity>
-              </ThemedView>
-
-              {showDatePicker && (
-                <DateTimePicker
-                  value={selectedDate}
-                  mode="datetime"
-                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                  onChange={(event, date) => {
-                    if (Platform.OS === 'android') {
-                      setShowDatePicker(false);
-                    }
-                    if (event.type === 'set' && date) {
-                      setSelectedDate(date);
-                    }
-                    if (Platform.OS === 'android' && event.type === 'dismissed') {
-                      setShowDatePicker(false);
-                    }
-                  }}
-                  minimumDate={new Date()}
-                />
-              )}
-              {Platform.OS === 'ios' && showDatePicker && (
-                <TouchableOpacity
-                  style={[styles.button, { backgroundColor: colors.tint, marginTop: 10 }]}
-                  onPress={() => setShowDatePicker(false)}>
-                  <ThemedText style={styles.buttonText}>Done</ThemedText>
-                </TouchableOpacity>
-              )}
-
-              <ThemedView style={styles.inputGroup}>
-                <ThemedText type="subtitle">Message</ThemedText>
-                <TextInput
-                  ref={messageInputRef}
-                  style={[styles.input, { color: colors.text, borderColor: colors.icon }]}
-                  placeholder="Notification message"
-                  placeholderTextColor={colors.icon}
-                  value={message}
-                  onChangeText={setMessage}
-                  multiline
-                  numberOfLines={2}
-                />
-              </ThemedView>
-
-              <ThemedView style={styles.inputGroup}>
-                <ThemedText type="subtitle">Note (optional)</ThemedText>
-                <TextInput
-                  ref={noteInputRef}
-                  style={[styles.input, styles.textArea, { color: colors.text, borderColor: colors.icon }]}
-                  placeholder="A short note"
-                  placeholderTextColor={colors.icon}
-                  value={note}
-                  onChangeText={setNote}
-                  multiline
-                  numberOfLines={6}
-                />
-              </ThemedView>
-
-              <ThemedView style={styles.inputGroup}>
-                <ThemedText type="subtitle">Link (optional)</ThemedText>
-                <TextInput
-                  ref={linkInputRef}
-                  style={[styles.input, { color: colors.text, borderColor: colors.icon }]}
-                  placeholder="Link to open for this notification"
-                  placeholderTextColor={colors.icon}
-                  value={link}
-                  onChangeText={setLink}
-                  onFocus={() => {
-                    // Mark that we're about to scroll for focus
-                    hasScrolledForFocus.current = true;
-
-                    // Wait for keyboard to appear, then scroll to show button
-                    setTimeout(() => {
-                      if (keyboardHeightRef.current > 0) {
-                        scrollToShowButton(keyboardHeightRef.current);
-                      } else {
-                        // Fallback: use estimated keyboard height
-                        const estimatedKeyboardHeight = Platform.OS === 'ios' ? 336 : 300;
-                        scrollToShowButton(estimatedKeyboardHeight);
-                      }
-                    }, Platform.OS === 'ios' ? 400 : 500);
-                  }}
-                  onBlur={() => {
-                    // When input loses focus, scroll to top
-                    if (hasScrolledForFocus.current) {
-                      setTimeout(() => {
-                        scrollViewRef.current?.scrollTo({
-                          y: 0,
-                          animated: true,
-                        });
-                        hasScrolledForFocus.current = false;
-                      }, Platform.OS === 'ios' ? 200 : 300);
-                    }
-                  }}
-                />
-              </ThemedView>
-
-              {alarmSupported && (
-                <ThemedView style={styles.inputGroup}>
-                  <ThemedView style={styles.switchContainer}>
-                    <ThemedText type="subtitle">Create Alarm</ThemedText>
-                    <Switch
-                      value={scheduleAlarm}
-                      onValueChange={setScheduleAlarm}
-                      trackColor={{ false: '#888', true: '#499f5d' }}
-                      thumbColor={Platform.OS === 'ios' ? '#499f5d' : colors.background}
-                    />
-                  </ThemedView>
-                  {/* <ThemedText style={[styles.switchDescription, { color: colors.icon }]}>
-                    Schedule a system alarm.
-                  </ThemedText> */}
-                </ThemedView>
-              )}
-
+          <ThemedView
+            style={styles.form}
+            onLayout={handleFormLayout}>
+            <ThemedView style={styles.inputGroup}>
+              <ThemedText type="subtitle">Date & Time</ThemedText>
               <TouchableOpacity
-                ref={scheduleButtonRef}
-                style={[styles.button, { backgroundColor: colors.tint }]}
-                onPress={scheduleNotification}
-                onLayout={(event) => {
-                  // Track button's bottom position relative to form top
-                  const { y, height } = event.nativeEvent.layout;
-                  buttonBottomInForm.current = y + height;
-                }}>
-                <ThemedText style={styles.buttonText}>Schedule Notification</ThemedText>
+                style={dateButtonStyle}
+                onPress={handleDateButtonPress}>
+                <ThemedText>{formatDateTime(selectedDate)}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 
-            {/* Spacer view to ensure link input has space above keyboard */}
-            {/* <ThemedView style={{ height: 300 }} /> */}
-          </ScrollView>
+            {showDatePicker && (
+              <DateTimePicker
+                value={selectedDate}
+                mode="datetime"
+                display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                onChange={handleDateChange}
+                minimumDate={minimumDate}
+              />
+            )}
+            {Platform.OS === 'ios' && showDatePicker && (
+              <TouchableOpacity
+                style={doneButtonStyle}
+                onPress={handleDonePress}>
+                <ThemedText style={doneButtonTextStyle}>Done</ThemedText>
+              </TouchableOpacity>
+            )}
+
+            <ThemedView style={styles.inputGroup}>
+              <ThemedText type="subtitle">Message</ThemedText>
+              <TextInput
+                ref={messageInputRef}
+                style={inputStyle}
+                placeholder="Notification message"
+                placeholderTextColor={colors.placeholderText}
+                value={message}
+                onChangeText={setMessage}
+                multiline
+                numberOfLines={2}
+              />
+            </ThemedView>
+
+            <ThemedView style={styles.inputGroup}>
+              <ThemedText type="subtitle">Note (optional)</ThemedText>
+              <TextInput
+                ref={noteInputRef}
+                style={textAreaStyle}
+                placeholder="A short note"
+                placeholderTextColor={colors.placeholderText}
+                value={note}
+                onChangeText={setNote}
+                multiline
+                numberOfLines={6}
+              />
+            </ThemedView>
+
+            <ThemedView style={styles.inputGroup}>
+              <ThemedText type="subtitle">Link (optional)</ThemedText>
+              <TextInput
+                ref={linkInputRef}
+                style={inputStyle}
+                placeholder="Link to open for this notification"
+                placeholderTextColor={colors.placeholderText}
+                value={link}
+                onChangeText={setLink}
+                onFocus={handleLinkFocus}
+                onBlur={handleLinkBlur}
+              />
+            </ThemedView>
+
+            {alarmSupported && (
+              <ThemedView style={styles.inputGroup}>
+                <ThemedView style={styles.switchContainer}>
+                  <ThemedText type="subtitle">Create Alarm</ThemedText>
+                  <Switch
+                    value={scheduleAlarm}
+                    onValueChange={setScheduleAlarm}
+                    trackColor={{ false: '#888', true: '#68CFAF' }}
+                    thumbColor={Platform.OS === 'ios' ? '#f0f0f0' : colors.background}
+                  />
+                </ThemedView>
+              </ThemedView>
+            )}
+
+            <TouchableOpacity
+              ref={scheduleButtonRef}
+              style={scheduleButtonStyle}
+              onPress={scheduleNotification}
+              onLayout={handleButtonLayout}>
+              <ThemedText style={scheduleButtonTextStyle}>Schedule Notification</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
+
         </TouchableWithoutFeedback>
       </KeyboardAwareScrollView>
-      <KeyboardToolbar offset={{ opened: 94, closed: 0 }} />
+      <KeyboardToolbar opacity="CF" offset={{ opened: 94, closed: 0 }} theme={theme}>
+        <KeyboardToolbar.Prev />
+        <KeyboardToolbar.Next />
+        <KeyboardToolbar.Done />
+      </KeyboardToolbar>
     </ThemedView>
   );
 }
@@ -650,7 +721,7 @@ const styles = StyleSheet.create({
   },
   header: {
     // marginBottom: 30,
-    marginTop: 60,
+    marginTop: 40,
     padding: 20,
   },
   form: {
@@ -672,19 +743,18 @@ const styles = StyleSheet.create({
   },
   dateButton: {
     borderWidth: 1,
-    borderRadius: 8,
+    borderRadius: 50,
     padding: 12,
     minHeight: 50,
     justifyContent: 'center',
   },
   button: {
-    borderRadius: 8,
+    borderRadius: 50,
     padding: 16,
     alignItems: 'center',
     marginTop: 10,
   },
   buttonText: {
-    color: '#605678',
     fontSize: 18,
     fontWeight: '600',
   },
@@ -697,5 +767,8 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginTop: 4,
     fontStyle: 'italic',
+  },
+  keyboardToolbar: {
+    width: '100%',
   },
 });

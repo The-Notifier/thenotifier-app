@@ -40,7 +40,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#8ddaff",
           "dark": {
             "backgroundColor": "#000000"
           }
@@ -50,7 +50,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/icon.png",
-          "color": "#ffffff",
+          "color": "#8ddaff",
           "vibrate": false,
           "sounds": [
             "./assets/sounds/thenotifier.wav"

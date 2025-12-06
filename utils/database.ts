@@ -75,6 +75,21 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_archivedNotification_scheduleDateTime ON archivedNotification (scheduleDateTime);
     `);
 
+    // Create calendarSelection table if it doesn't exist
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS calendarSelection (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        calendarId TEXT NOT NULL UNIQUE,
+        isSelected INTEGER NOT NULL DEFAULT 1,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Create index for calendarSelection table
+    await db.execAsync(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_calendarSelection_calendarId ON calendarSelection (calendarId);
+    `);
+
     isInitialized = true;
     console.log('Database initialized successfully');
   } catch (error: any) {
@@ -245,6 +260,118 @@ export const getArchivedNotificationData = async (notificationId: string) => {
   } catch (error: any) {
     console.error('Failed to get archived notification data:', error);
     return null;
+  }
+};
+
+// Save calendar selection state
+export const saveCalendarSelection = async (calendarId: string, isSelected: boolean) => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const isSelectedInt = isSelected ? 1 : 0;
+    await db.execAsync(
+      `INSERT OR REPLACE INTO calendarSelection (calendarId, isSelected, updatedAt)
+      VALUES ('${calendarId}', ${isSelectedInt}, CURRENT_TIMESTAMP);`
+    );
+    console.log(`Calendar selection saved: ${calendarId} = ${isSelected}`);
+  } catch (error: any) {
+    console.error('Failed to save calendar selection:', error);
+    throw new Error(`Failed to save calendar selection: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Save multiple calendar selections at once
+export const saveCalendarSelections = async (selectedCalendarIds: Set<string>) => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    // Start a transaction for better performance
+    await db.execAsync('BEGIN TRANSACTION;');
+
+    try {
+      // Get all existing calendar IDs from the database
+      const existingCalendars = await db.getAllAsync<{ calendarId: string }>(
+        `SELECT calendarId FROM calendarSelection;`
+      );
+      const existingCalendarIds = new Set(existingCalendars.map(row => row.calendarId));
+
+      // Update or insert selected calendars
+      for (const calendarId of selectedCalendarIds) {
+        await db.execAsync(
+          `INSERT OR REPLACE INTO calendarSelection (calendarId, isSelected, updatedAt)
+          VALUES ('${calendarId}', 1, CURRENT_TIMESTAMP);`
+        );
+      }
+
+      // Update existing calendars that are now unselected
+      for (const existingId of existingCalendarIds) {
+        if (!selectedCalendarIds.has(existingId)) {
+          await db.execAsync(
+            `INSERT OR REPLACE INTO calendarSelection (calendarId, isSelected, updatedAt)
+            VALUES ('${existingId}', 0, CURRENT_TIMESTAMP);`
+          );
+        }
+      }
+
+      await db.execAsync('COMMIT;');
+      console.log('Calendar selections saved successfully');
+    } catch (error) {
+      await db.execAsync('ROLLBACK;');
+      throw error;
+    }
+  } catch (error: any) {
+    console.error('Failed to save calendar selections:', error);
+    throw new Error(`Failed to save calendar selections: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get calendar selection state
+export const getCalendarSelection = async (calendarId: string): Promise<boolean | null> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{ isSelected: number }>(
+      `SELECT isSelected FROM calendarSelection WHERE calendarId = '${calendarId}';`
+    );
+    return result ? result.isSelected === 1 : null;
+  } catch (error: any) {
+    console.error('Failed to get calendar selection:', error);
+    return null;
+  }
+};
+
+// Get all calendar selection states
+export const getAllCalendarSelections = async (): Promise<Map<string, boolean>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getAllAsync<{ calendarId: string; isSelected: number }>(
+      `SELECT calendarId, isSelected FROM calendarSelection;`
+    );
+    const selections = new Map<string, boolean>();
+    for (const row of result) {
+      selections.set(row.calendarId, row.isSelected === 1);
+    }
+    return selections;
+  } catch (error: any) {
+    console.error('Failed to get all calendar selections:', error);
+    return new Map();
+  }
+};
+
+// Get set of selected calendar IDs
+export const getSelectedCalendarIds = async (): Promise<Set<string>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getAllAsync<{ calendarId: string }>(
+      `SELECT calendarId FROM calendarSelection WHERE isSelected = 1;`
+    );
+    return new Set(result.map(row => row.calendarId));
+  } catch (error: any) {
+    console.error('Failed to get selected calendar IDs:', error);
+    return new Set();
   }
 };
 

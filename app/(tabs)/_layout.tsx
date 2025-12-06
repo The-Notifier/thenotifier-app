@@ -8,33 +8,44 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
 
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        tabBarActiveTintColor: colors.tint,
+        tabBarInactiveTintColor: '#226487',
         headerShown: false,
         tabBarButton: HapticTab,
+        tabBarStyle: {
+          backgroundColor: colors.background,
+        },
       }}>
       <Tabs.Screen
         name="home"
         options={{
           title: 'Home',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="house.fill" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="house.fill" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="index"
         options={{
           title: 'Schedule',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="plus" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="plus" color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="calendar"
         options={{
           title: 'Calendar',
-          tabBarIcon: ({ color }) => <IconSymbol size={28} name="calendar" color={color} />,
+          tabBarIcon: ({ color, focused }) => (
+            <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="calendar" color={color} />
+          ),
         }}
       />
     </Tabs>

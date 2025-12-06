@@ -9,6 +9,7 @@ import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { getAllCalendarSelections, saveCalendarSelections } from '@/utils/database';
 
 type CalendarEvent = {
   id: string;
@@ -20,6 +21,7 @@ type CalendarEvent = {
   endDate: Date;
   description?: string;
   location?: string;
+  isRecurring?: boolean;
 };
 
 export default function CalendarScreen() {
@@ -184,16 +186,42 @@ export default function CalendarScreen() {
     try {
       const calendarsList = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
       setCalendars(calendarsList);
-      // Select all calendars by default
-      const defaultSelected = new Set(calendarsList.map(cal => cal.id));
-      setSelectedCalendarIds(defaultSelected);
+
+      // Load saved calendar selections from database (both selected and unselected)
+      const savedSelections = await getAllCalendarSelections();
+
+      // If we have any saved selections, use them
+      if (savedSelections.size > 0) {
+        // Build set of selected calendar IDs from saved selections
+        // Only include calendars that still exist (in case calendars were deleted)
+        const validSelectedIds = new Set(
+          Array.from(savedSelections.entries())
+            .filter(([calendarId, isSelected]) =>
+              isSelected && calendarsList.some(cal => cal.id === calendarId)
+            )
+            .map(([calendarId]) => calendarId)
+        );
+
+        setSelectedCalendarIds(validSelectedIds);
+
+        // Clean up database: remove selections for calendars that no longer exist
+        // and ensure new calendars are tracked (they'll be unselected by default)
+        // This is handled by saveCalendarSelections which updates all calendars
+        await saveCalendarSelections(validSelectedIds);
+      } else {
+        // No saved selections at all, select all calendars by default
+        const defaultSelected = new Set(calendarsList.map(cal => cal.id));
+        setSelectedCalendarIds(defaultSelected);
+        // Save the default selection
+        await saveCalendarSelections(defaultSelected);
+      }
     } catch (error) {
       console.error('Failed to load calendars:', error);
       Alert.alert('Error', 'Failed to load calendars');
     }
   };
 
-  const toggleCalendarSelection = (calendarId: string) => {
+  const toggleCalendarSelection = async (calendarId: string) => {
     const newSelected = new Set(selectedCalendarIds);
     if (newSelected.has(calendarId)) {
       newSelected.delete(calendarId);
@@ -201,6 +229,13 @@ export default function CalendarScreen() {
       newSelected.add(calendarId);
     }
     setSelectedCalendarIds(newSelected);
+
+    // Save the updated selection state to database
+    try {
+      await saveCalendarSelections(newSelected);
+    } catch (error) {
+      console.error('Failed to save calendar selection:', error);
+    }
   };
 
   const loadEvents = async () => {
@@ -251,6 +286,7 @@ export default function CalendarScreen() {
               endDate: new Date(event.endDate),
               description: (event as any).description || undefined,
               location: (event as any).location || undefined,
+              isRecurring: event.recurrenceRule !== null && event.recurrenceRule !== undefined,
             });
           }
         } catch (error) {
@@ -351,7 +387,7 @@ export default function CalendarScreen() {
     // Try using React Navigation's navigate method for tab navigation
     const params = {
       date: event.startDate.toISOString(),
-      title: 'Calendar: ' + event.calendarName,
+      title: '📅 ' + event.calendarName,
       message: event.title,
       note: '(click the button to open your calendar)',
       link: calendarLink,
@@ -386,7 +422,7 @@ export default function CalendarScreen() {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
 
-    const maxDrawerHeight = item.location ? 190 : 120;
+    const maxDrawerHeight = item.location ? 170 : 92;
 
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
@@ -412,9 +448,19 @@ export default function CalendarScreen() {
             <ThemedText type="defaultSemiBold" style={styles.title}>
               {item.title}
             </ThemedText>
-            <ThemedText style={styles.dateTime}>
-              {formatDateTime(item.startDate)}
-            </ThemedText>
+            <ThemedView style={styles.dateTimeContainer}>
+              <ThemedText style={styles.dateTime}>
+                {formatDateTime(item.startDate)}
+              </ThemedText>
+              {item.isRecurring && (
+                <IconSymbol
+                  name="repeat"
+                  size={20}
+                  color={colors.icon}
+                  style={styles.recurringIcon}
+                />
+              )}
+            </ThemedView>
           </ThemedView>
           <IconSymbol
             name={isExpanded ? 'chevron.up' : 'chevron.down'}
@@ -434,16 +480,6 @@ export default function CalendarScreen() {
             },
           ]}>
           <ThemedView style={styles.drawerContent}>
-            {/* {item.description && (
-              <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
-                  Description:
-                </ThemedText>
-                <ThemedText style={styles.detailValue}>
-                  {item.description}
-                </ThemedText>
-              </ThemedView>
-            )} */}
 
             {item.location && (
               <ThemedView style={styles.detailRow}>
@@ -460,18 +496,18 @@ export default function CalendarScreen() {
             )}
 
             <ThemedView style={styles.actionButtons}>
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: '#bf3f2f' }]}
                 onPress={() => handleHideEvent(item.id)}
                 activeOpacity={0.7}>
                 <ThemedText style={styles.actionButtonText}>Hide Event</ThemedText>
-              </TouchableOpacity>
+              </TouchableOpacity> */}
 
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#499f5d' }]}
+                style={[styles.actionButton, { backgroundColor: colors.tint }]}
                 onPress={() => handleScheduleNotification(item)}
                 activeOpacity={0.7}>
-                <ThemedText style={styles.actionButtonText}>Schedule Notification</ThemedText>
+                <ThemedText style={[styles.actionButtonText, { color: colors.buttonText }]}>Schedule Notification</ThemedText>
               </TouchableOpacity>
             </ThemedView>
           </ThemedView>
@@ -519,10 +555,12 @@ export default function CalendarScreen() {
       <ThemedView style={styles.header}>
         {/* <ThemedText type="title">Calendar Events</ThemedText> */}
         <TouchableOpacity
-          style={[styles.calendarButton]}
+          // style={[styles.calendarButton]}
+          style={[styles.calendarButton, { backgroundColor: colors.tint, borderColor: colors.icon + '40' }]}
           onPress={() => setShowCalendarSelection(!showCalendarSelection)}
           activeOpacity={0.7}>
-          <ThemedText style={styles.calendarButtonText}>
+          {/* <ThemedText style={styles.calendarButtonText}> */}
+          <ThemedText style={[styles.calendarButtonText, { color: colors.buttonText }]}>
             {showCalendarSelection ? 'Hide Calendar List' : 'Select Calendars'}
           </ThemedText>
         </TouchableOpacity>
@@ -542,12 +580,13 @@ export default function CalendarScreen() {
                 <Switch
                   value={selectedCalendarIds.has(item.id)}
                   onValueChange={() => toggleCalendarSelection(item.id)}
-                  trackColor={{ false: '#888', true: '#499f5d' }}
-                  thumbColor={Platform.OS === 'ios' ? '#499f5d' : colors.background}
+                  trackColor={{ false: '#888', true: '#68CFAF' }}
+                  thumbColor={Platform.OS === 'ios' ? '#f0f0f0' : colors.background}
                 />
               </ThemedView>
             )}
-            style={styles.calendarList}
+            // style={styles.calendarList}
+            style={[{ backgroundColor: colors.background }]}
           />
         </ThemedView>
       )}
@@ -594,13 +633,12 @@ const styles = StyleSheet.create({
   calendarButton: {
     marginTop: 20,
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 50,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#ffffff',
+    // borderColor: Colors.light.icon + '40',
   },
   calendarButtonText: {
-    color: '#fff',
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
@@ -609,13 +647,13 @@ const styles = StyleSheet.create({
     padding: 20,
     borderBottomWidth: 1,
     // maxHeight: 300,
-    backgroundColor: '#070700',
+    // backgroundColor: '#242424',
   },
   calendarSelectionTitle: {
     marginBottom: 12,
   },
   calendarList: {
-    backgroundColor: '#070700',
+    // backgroundColor: '#242424',
     // maxHeight: 200,
   },
   calendarItem: {
@@ -624,7 +662,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 12,
     // borderBottomWidth: 1,
-    backgroundColor: '#070700',
+    // backgroundColor: '#242424',
 
   },
   calendarItemText: {
@@ -662,8 +700,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     marginBottom: 4,
   },
+  dateTimeContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   dateTime: {
     fontSize: 18,
+    opacity: 0.8,
+  },
+  recurringIcon: {
     opacity: 0.8,
   },
   drawer: {
@@ -672,7 +718,7 @@ const styles = StyleSheet.create({
   drawerContent: {
     paddingTop: 16,
     paddingHorizontal: 16,
-    paddingBottom: 20,
+    paddingBottom: 0,
     gap: 12,
   },
   detailRow: {
@@ -689,16 +735,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 8,
+    justifyContent: 'center',
   },
   actionButton: {
-    flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 50,
+    width: '90%',
   },
   actionButtonText: {
-    color: '#fff',
+    color: '#8ddaff',
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
