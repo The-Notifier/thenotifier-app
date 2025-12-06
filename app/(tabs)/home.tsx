@@ -262,19 +262,19 @@ export default function HomeScreen() {
             <ThemedView style={styles.actionButtons}>
 
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#bf3f2f' }]}
+                style={[styles.actionButton, { backgroundColor: colors.deleteButton }]}
                 onPress={() => handleDelete(item)}
                 activeOpacity={0.7}>
-                <IconSymbol name="trash" size={20} color="#fff" />
-                <ThemedText style={styles.actionButtonText}>Delete</ThemedText>
+                <IconSymbol name="trash" size={20} color={colors.deleteButtonText} />
+                <ThemedText style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.actionButton, { backgroundColor: '#59af6d' }]}
+                style={[styles.actionButton, { backgroundColor: colors.tint }]}
                 onPress={() => handleEdit(item)}
                 activeOpacity={0.7}>
-                <IconSymbol name="pencil" size={20} color="#fff" />
-                <ThemedText style={styles.actionButtonText}>Edit</ThemedText>
+                <IconSymbol name="pencil" size={20} color={colors.buttonText} />
+                <ThemedText style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
               </TouchableOpacity>
 
             </ThemedView>
@@ -473,13 +473,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    marginTop: 60,
+    marginTop: 40,
     // marginBottom: 30,
     padding: 20,
   },
   tabContainer: {
     flexDirection: 'row',
-    borderBottomWidth: 1,
+    // borderBottomWidth: 1,
+    marginBottom: 15,
   },
   tab: {
     flex: 1,
@@ -558,11 +559,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 50,
     gap: 8,
   },
   actionButtonText: {
-    color: '#fff',
+    color: '#8ddaff',
     fontSize: 18,
     fontWeight: '600',
     textAlign: 'center',
