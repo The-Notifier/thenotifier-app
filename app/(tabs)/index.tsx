@@ -11,7 +11,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { archiveScheduledNotifications, getAllScheduledNotificationData, saveScheduledNotificationData } from '@/utils/database';
+import { archiveScheduledNotifications, deleteScheduledNotification, getAllScheduledNotificationData, saveScheduledNotificationData } from '@/utils/database';
 import * as Crypto from 'expo-crypto';
 import { DefaultKeyboardToolbarTheme, KeyboardAwareScrollView, KeyboardToolbar, KeyboardToolbarProps } from 'react-native-keyboard-controller';
 
@@ -85,6 +85,9 @@ export default function NotificationScreen() {
     note?: string;
     link?: string;
     repeat?: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly';
+    editMode?: string;
+    notificationId?: string;
+    hasAlarm?: string;
   }>();
 
   // Initialize state from params if available
@@ -113,12 +116,21 @@ export default function NotificationScreen() {
   const [repeatOption, setRepeatOption] = useState<'none' | 'daily' | 'weekly' | 'monthly' | 'yearly'>(
     (params.repeat as 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly') || 'none'
   );
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingNotificationId, setEditingNotificationId] = useState<string | null>(null);
+  const [editingHasAlarm, setEditingHasAlarm] = useState(false);
 
   // Memoize minimum date to prevent creating new Date object on each render
   const minimumDate = useMemo(() => new Date(), []);
 
   // Check if scheduled notifications count has reached the maximum
+  // Skip check if in edit mode since we're replacing an existing notification
   const checkNotificationLimit = useCallback(async (): Promise<boolean> => {
+    // Skip check in edit mode
+    if (isEditMode) {
+      return false;
+    }
+
     try {
       // Archive past notifications first
       await archiveScheduledNotifications();
@@ -154,7 +166,7 @@ export default function NotificationScreen() {
       console.error('Failed to check scheduled notifications count:', error);
       return false;
     }
-  }, [router]);
+  }, [router, isEditMode]);
 
   // Check scheduled notifications count when screen is focused (switching from another tab)
   // Also reset selectedDate to current date/time unless a date parameter is provided
@@ -196,8 +208,27 @@ export default function NotificationScreen() {
     })();
   }, []);
 
-  // Update fields when params change (e.g., when navigating from calendar)
+  // Update fields when params change (e.g., when navigating from calendar or edit mode)
   useEffect(() => {
+    // Check if we're in edit mode
+    if (params.editMode === 'true') {
+      setIsEditMode(true);
+      if (params.notificationId) {
+        setEditingNotificationId(params.notificationId);
+      }
+      if (params.hasAlarm === 'true') {
+        setEditingHasAlarm(true);
+        setScheduleAlarm(true);
+      } else {
+        setEditingHasAlarm(false);
+        setScheduleAlarm(false);
+      }
+    } else {
+      setIsEditMode(false);
+      setEditingNotificationId(null);
+      setEditingHasAlarm(false);
+    }
+
     if (params.date) {
       setSelectedDate(new Date(params.date));
     }
@@ -216,7 +247,7 @@ export default function NotificationScreen() {
     if (params.repeat) {
       setRepeatOption(params.repeat as 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly');
     }
-  }, [params.date, params.title, params.message, params.note, params.link, params.repeat]);
+  }, [params.date, params.title, params.message, params.note, params.link, params.repeat, params.editMode, params.notificationId, params.hasAlarm]);
 
   // Memoize form onLayout handler
   const handleFormLayout = useCallback((event: any) => {
@@ -465,7 +496,30 @@ export default function NotificationScreen() {
     setScheduleAlarm(false);
     setRepeatOption('none');
     setShowRepeatPicker(false);
+    setIsEditMode(false);
+    setEditingNotificationId(null);
+    setEditingHasAlarm(false);
   };
+
+  const handleClearOrCancel = useCallback(() => {
+    if (isEditMode) {
+      resetForm();
+      Alert.alert(
+        'Cancel Edit',
+        'The upcoming event will be unchanged.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              router.push('/(tabs)/home');
+            },
+          },
+        ]
+      );
+    } else {
+      resetForm();
+    }
+  }, [isEditMode, router]);
 
   const scheduleNotification = async () => {
     console.log('=== SCHEDULE NOTIFICATION ===');
@@ -490,6 +544,46 @@ export default function NotificationScreen() {
       return;
     }
 
+    // If in edit mode, cancel existing notification and alarm, then delete from DB
+    if (isEditMode && editingNotificationId) {
+      try {
+        // Cancel existing notification
+        await Notifications.cancelScheduledNotificationAsync(editingNotificationId);
+        console.log('Cancelled existing notification:', editingNotificationId);
+        const alarmId = `alarm-${editingNotificationId}`;
+        console.log('Cancelling existing alarm with ID:', alarmId);
+        // Cancel existing alarm if it had one
+        if (editingHasAlarm) {
+          try {
+            // Check if alarm exists before attempting to cancel
+            const existingAlarm = await NativeAlarmManager.getAlarm(alarmId);
+            if (existingAlarm) {
+              await NativeAlarmManager.cancelAlarm(alarmId);
+              console.log('Cancelled existing alarm:', alarmId);
+            } else {
+              console.log('Alarm not found, may have already been cancelled:', alarmId);
+            }
+          } catch (alarmError) {
+            // Check if error is "alarm not found" - if so, it's safe to ignore
+            const errorMessage = alarmError instanceof Error ? alarmError.message : String(alarmError);
+            if (errorMessage.includes('not found') || errorMessage.includes('ALARM_NOT_FOUND')) {
+              console.log('Alarm not found (may have already been cancelled):', alarmId);
+            } else {
+              console.error('Failed to cancel existing alarm:', alarmId, ', error:', alarmError);
+              // Continue even if alarm cancellation fails
+            }
+          }
+        }
+
+        // Delete existing notification from DB
+        await deleteScheduledNotification(editingNotificationId);
+        console.log('Deleted existing notification from DB:', editingNotificationId);
+      } catch (error) {
+        console.error('Failed to cancel/delete existing notification:', error);
+        Alert.alert('Error', 'Failed to update notification. Please try again.');
+        return;
+      }
+    }
 
     const notificationId = "thenotifier-" + Crypto.randomUUID();
     const notificationTitle = title || 'Personal';
@@ -708,7 +802,7 @@ export default function NotificationScreen() {
 
           // Use 'fixed' type for one-time alarm with specific date and time
           const alarmId = `alarm-${notificationId}`;
-          console.log('Scheduling alarm...');
+          console.log('Scheduling alarm with ID:', alarmId);
           console.log('Alarm date:', dateWithoutSeconds.toISOString());
           await NativeAlarmManager.scheduleAlarm(
             {
@@ -751,6 +845,15 @@ export default function NotificationScreen() {
           );
 
           console.log('Alarm scheduled successfully for:', dateWithoutSeconds);
+          setTimeout(async () => {
+            const existingAlarm = await NativeAlarmManager.getAlarm(alarmId);
+            if (existingAlarm) {
+              console.log('Scheduled existing alarm found in NativeAlarmManager:', alarmId);
+            } else {
+              console.log('Scheduled alarm not found in NativeAlarmManager:', alarmId);
+            }
+          }, 500);
+
         } catch (error) {
           console.error('Failed to schedule alarm:', error);
           const errorMessage = error instanceof Error ? error.message : String(error);
@@ -769,7 +872,24 @@ export default function NotificationScreen() {
         }
       }
 
-      Alert.alert('Success', 'Notification scheduled successfully!');
+      // Show different success message based on mode
+      if (isEditMode) {
+        Alert.alert(
+          'Success',
+          'Existing notification has been changed.',
+          [
+            {
+              text: 'OK',
+              onPress: () => {
+                router.push('/(tabs)/home');
+              },
+            },
+          ]
+        );
+      } else {
+        Alert.alert('Success', 'Notification scheduled successfully!');
+      }
+
       console.log('Notification scheduled with ID:', notificationId);
       console.log('Notification selected date:', dateWithoutSeconds);
       console.log('Notification title:', notificationTitle);
@@ -846,9 +966,9 @@ export default function NotificationScreen() {
             <ThemedView style={styles.clearButtonContainer}>
               <TouchableOpacity
                 style={clearButtonStyle}
-                onPress={resetForm}
+                onPress={handleClearOrCancel}
                 activeOpacity={0.7}>
-                <ThemedText style={clearButtonTextStyle}>Clear</ThemedText>
+                <ThemedText style={clearButtonTextStyle}>{isEditMode ? 'Cancel' : 'Clear'}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 

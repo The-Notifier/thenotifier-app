@@ -1,5 +1,6 @@
 import { useFocusEffect } from '@react-navigation/native';
 import * as Notifications from 'expo-notifications';
+import { useNavigation, useRouter } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Alert, Animated, Dimensions, FlatList, RefreshControl, StyleSheet, TouchableOpacity } from 'react-native';
 
@@ -48,6 +49,7 @@ type ArchivedNotification = {
 type TabType = 'scheduled' | 'archived';
 
 export default function HomeScreen() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<TabType>('scheduled');
   const [scheduledNotifications, setScheduledNotifications] = useState<ScheduledNotification[]>([]);
   const [archivedNotifications, setArchivedNotifications] = useState<ArchivedNotification[]>([]);
@@ -55,6 +57,7 @@ export default function HomeScreen() {
   const [animations] = useState<Map<number, Animated.Value>>(new Map());
   const [refreshingScheduled, setRefreshingScheduled] = useState(false);
   const [refreshingArchived, setRefreshingArchived] = useState(false);
+  const navigation = useNavigation();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
 
@@ -186,8 +189,30 @@ export default function HomeScreen() {
   };
 
   const handleEdit = (notification: ScheduledNotification) => {
-    // TODO: Navigate to edit screen or implement inline editing
-    Alert.alert('Edit Notification', 'Edit functionality will be implemented soon');
+    const params: any = {
+      editMode: 'true',
+      notificationId: notification.notificationId,
+      title: notification.title,
+      message: notification.message,
+      note: notification.note,
+      link: notification.link,
+      date: notification.scheduleDateTime,
+      repeat: notification.repeatOption || 'none',
+      hasAlarm: notification.hasAlarm.toString(),
+    };
+
+    try {
+      (navigation as any).navigate('index', params);
+      console.log('handleEdit: Navigating to index screen with params using navigate:', params);
+    } catch (error) {
+      // Fallback: use router with href string
+      console.log('handleEdit: Navigating to index screen with params using router:', params);
+      const queryParams = new URLSearchParams(params);
+      router.push(`/(tabs)/index?${queryParams.toString()}` as any);
+    }
+
+    //   const queryParams = new URLSearchParams(params);
+    //   router.push(`/(tabs)/index?${queryParams.toString()}` as any);
   };
 
   // Format date string to remove seconds
