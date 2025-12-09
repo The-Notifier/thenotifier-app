@@ -55,6 +55,8 @@ export default function HomeScreen() {
   const [archivedNotifications, setArchivedNotifications] = useState<ArchivedNotification[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [animations] = useState<Map<number, Animated.Value>>(new Map());
+  const [drawerHeights] = useState<Map<number, number>>(new Map());
+  const [drawerHeightUpdateTrigger, setDrawerHeightUpdateTrigger] = useState(0);
   const [refreshingScheduled, setRefreshingScheduled] = useState(false);
   const [refreshingArchived, setRefreshingArchived] = useState(false);
   const navigation = useNavigation();
@@ -282,16 +284,29 @@ export default function HomeScreen() {
   const renderScheduledNotificationItem = ({ item }: { item: ScheduledNotification }) => {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
+    const measuredHeight = drawerHeights.get(item.id) || 300; // Default fallback height
 
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [0, 300],
+      outputRange: [0, measuredHeight],
     });
 
     const opacity = animValue.interpolate({
       inputRange: [0, 1],
       outputRange: [0, 1],
     });
+
+    const handleDrawerContentLayout = (event: any) => {
+      const { height } = event.nativeEvent.layout;
+      // The measured height already includes padding (16px on all sides)
+      // Store the height for use in animation
+      const currentHeight = drawerHeights.get(item.id);
+      if (currentHeight !== height) {
+        drawerHeights.set(item.id, height);
+        // Trigger re-render to update animation with new height
+        setDrawerHeightUpdateTrigger(prev => prev + 1);
+      }
+    };
 
     return (
       <ThemedView style={[styles.notificationItem, { borderColor: colors.icon + '40' }]}>
@@ -345,7 +360,9 @@ export default function HomeScreen() {
               borderTopColor: colors.icon + '40',
             },
           ]}>
-          <ThemedView style={styles.drawerContent}>
+          <ThemedView
+            style={styles.drawerContent}
+            onLayout={handleDrawerContentLayout}>
             {item.repeatOption && item.repeatOption !== 'none' && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" style={styles.detailLabel}>
@@ -407,10 +424,17 @@ export default function HomeScreen() {
   const renderArchivedNotificationItem = ({ item }: { item: ArchivedNotification }) => {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
+    const measuredHeight = drawerHeights.get(item.id) || 250; // Default fallback height
+
+    // Check if item has any expandable content (repeat option, note, or link)
+    const hasRepeatOption = item.repeatOption && item.repeatOption !== 'none';
+    const hasNote = item.note && item.note.trim().length > 0;
+    const hasLink = item.link && item.link.trim().length > 0;
+    const hasExpandableContent = hasRepeatOption || hasNote || hasLink;
 
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
-      outputRange: [0, 250],
+      outputRange: [0, measuredHeight],
     });
 
     const opacity = animValue.interpolate({
@@ -418,93 +442,123 @@ export default function HomeScreen() {
       outputRange: [0, 1],
     });
 
-    return (
-      <ThemedView style={[styles.notificationItem, { borderColor: colors.icon + '40' }]}>
-        <TouchableOpacity
-          style={styles.notificationHeader}
-          onPress={() => toggleExpand(item.id)}
-          activeOpacity={0.7}>
-          <ThemedView style={styles.notificationContent}>
-            <ThemedText type="defaultSemiBold" style={styles.title}>
-              {item.title}
+    const handleDrawerContentLayout = (event: any) => {
+      const { height } = event.nativeEvent.layout;
+      // The measured height already includes padding (16px on all sides)
+      // Store the height for use in animation
+      const currentHeight = drawerHeights.get(item.id);
+      if (currentHeight !== height) {
+        drawerHeights.set(item.id, height);
+        // Trigger re-render to update animation with new height
+        setDrawerHeightUpdateTrigger(prev => prev + 1);
+      }
+    };
+
+    const headerContent = (
+      <>
+        <ThemedView style={styles.notificationContent}>
+          <ThemedText type="defaultSemiBold" style={styles.title}>
+            {item.title}
+          </ThemedText>
+          <ThemedText style={styles.message} numberOfLines={2}>
+            {item.message}
+          </ThemedText>
+          <ThemedView style={styles.dateTimeRow}>
+            <ThemedText style={styles.message} numberOfLines={1}>
+              {formatDateTimeWithoutSeconds(item.scheduleDateTimeLocal)}
             </ThemedText>
-            <ThemedText style={styles.message} numberOfLines={2}>
-              {item.message}
-            </ThemedText>
-            <ThemedView style={styles.dateTimeRow}>
-              <ThemedText style={styles.message} numberOfLines={1}>
-                {formatDateTimeWithoutSeconds(item.scheduleDateTimeLocal)}
-              </ThemedText>
-              {item.hasAlarm && (
-                <IconSymbol
-                  name="bell.fill"
-                  size={16}
-                  color={colors.icon}
-                  style={styles.icon}
-                />
-              )}
-              {item.repeatOption && item.repeatOption !== 'none' && (
-                <IconSymbol
-                  name="repeat"
-                  size={16}
-                  color={colors.icon}
-                  style={styles.icon}
-                />
-              )}
-            </ThemedView>
+            {item.hasAlarm && (
+              <IconSymbol
+                name="bell.fill"
+                size={16}
+                color={colors.icon}
+                style={styles.icon}
+              />
+            )}
+            {hasRepeatOption && (
+              <IconSymbol
+                name="repeat"
+                size={16}
+                color={colors.icon}
+                style={styles.icon}
+              />
+            )}
           </ThemedView>
+        </ThemedView>
+        {hasExpandableContent && (
           <IconSymbol
             name={isExpanded ? 'chevron.up' : 'chevron.down'}
             size={24}
             color={colors.icon}
           />
-        </TouchableOpacity>
+        )}
+      </>
+    );
 
-        <Animated.View
-          style={[
-            styles.drawer,
-            {
-              height: drawerHeight,
-              opacity: opacity,
-              overflow: 'hidden',
-              borderTopColor: colors.icon + '40',
-            },
-          ]}>
-          <ThemedView style={styles.drawerContent}>
-            {item.repeatOption && item.repeatOption !== 'none' && (
-              <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
-                  Repeat:
-                </ThemedText>
-                <ThemedText style={styles.detailValue}>
-                  {formatRepeatOption(item.repeatOption, item.scheduleDateTime)}
-                </ThemedText>
-              </ThemedView>
-            )}
-
-            {item.note && (
-              <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
-                  Note:
-                </ThemedText>
-                <ThemedText style={styles.detailValue}>
-                  {item.note}
-                </ThemedText>
-              </ThemedView>
-            )}
-
-            {item.link && (
-              <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
-                  Link:
-                </ThemedText>
-                <ThemedText style={styles.detailValue} numberOfLines={1}>
-                  {item.link}
-                </ThemedText>
-              </ThemedView>
-            )}
+    return (
+      <ThemedView style={[styles.notificationItem, { borderColor: colors.icon + '40' }]}>
+        {hasExpandableContent ? (
+          <TouchableOpacity
+            style={styles.notificationHeader}
+            onPress={() => toggleExpand(item.id)}
+            activeOpacity={0.7}>
+            {headerContent}
+          </TouchableOpacity>
+        ) : (
+          <ThemedView style={styles.notificationHeader}>
+            {headerContent}
           </ThemedView>
-        </Animated.View>
+        )}
+
+        {hasExpandableContent && (
+          <Animated.View
+            style={[
+              styles.drawer,
+              {
+                height: drawerHeight,
+                opacity: opacity,
+                overflow: 'hidden',
+                borderTopColor: colors.icon + '40',
+              },
+            ]}>
+            <ThemedView
+              style={styles.drawerContent}
+              onLayout={handleDrawerContentLayout}>
+              {hasRepeatOption && (
+                <ThemedView style={styles.detailRow}>
+                  <ThemedText type="subtitle" style={styles.detailLabel}>
+                    Repeat:
+                  </ThemedText>
+                  <ThemedText style={styles.detailValue}>
+                    {formatRepeatOption(item.repeatOption!, item.scheduleDateTime)}
+                  </ThemedText>
+                </ThemedView>
+              )}
+
+              {hasNote && (
+                <ThemedView style={styles.detailRow}>
+                  <ThemedText type="subtitle" style={styles.detailLabel}>
+                    Note:
+                  </ThemedText>
+                  <ThemedText style={styles.detailValue}>
+                    {item.note}
+                  </ThemedText>
+                </ThemedView>
+              )}
+
+              {hasLink && (
+                <ThemedView style={styles.detailRow}>
+                  <ThemedText type="subtitle" style={styles.detailLabel}>
+                    Link:
+                  </ThemedText>
+                  <ThemedText style={styles.detailValue} numberOfLines={1}>
+                    {item.link}
+                  </ThemedText>
+                </ThemedView>
+              )}
+            </ThemedView>
+          </Animated.View>
+        )}
       </ThemedView>
     );
   };
@@ -680,7 +734,9 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   drawerContent: {
-    padding: 16,
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 16,
     gap: 12,
   },
   detailRow: {
