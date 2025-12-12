@@ -10,6 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { deleteScheduledNotification, getAllArchivedNotificationData, getAllScheduledNotificationData } from '@/utils/database';
+import { Toast } from 'toastify-react-native';
 
 type ScheduledNotification = {
   id: number;
@@ -182,7 +183,21 @@ export default function HomeScreen() {
               await deleteScheduledNotification(notification.notificationId);
               // Reload notifications
               await loadAllNotifications();
-              Alert.alert('Success', 'Notification cancelled successfully');
+              // Alert.alert('Success', 'Notification cancelled successfully');
+
+              Toast.show({
+                type: 'success',
+                text1: 'Your notification has been cancelled',
+                position: 'center',
+                visibilityTime: 3000,
+                autoHide: true,
+                backgroundColor: colors.toastBackground,
+                textColor: colors.toastTextColor,
+                progressBarColor: colors.toastProgressBar,
+                iconColor: colors.toastIconColor,
+                iconSize: 24,
+              });
+
             } catch (error) {
               console.error('Failed to delete notification:', error);
               Alert.alert('Error', 'Failed to cancel notification');

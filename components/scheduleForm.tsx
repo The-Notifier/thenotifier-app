@@ -772,33 +772,33 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
         }
       }
 
-      if (isEditMode) {
-        Alert.alert(
-          'Success',
-          'Your existing notification has been changed.',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                onSuccess?.();
-              },
-            },
-          ]
-        );
-      } else {
-        Alert.alert(
-          'Success',
-          'Your notification has been scheduled!',
-          [
-            {
-              text: 'OK',
-              onPress: () => {
-                onSuccess?.();
-              },
-            },
-          ]
-        );
-      }
+      // if (isEditMode) {
+      //   Alert.alert(
+      //     'Success',
+      //     'Your existing notification has been changed.',
+      //     [
+      //       {
+      //         text: 'OK',
+      //         onPress: () => {
+      //           onSuccess?.();
+      //         },
+      //       },
+      //     ]
+      //   );
+      // } else {
+      //   Alert.alert(
+      //     'Success',
+      //     'Your notification has been scheduled!',
+      //     [
+      //       {
+      //         text: 'OK',
+      //         onPress: () => {
+      //           onSuccess?.();
+      //         },
+      //       },
+      //     ]
+      //   );
+      // }
 
       console.log('Notification scheduled with ID:', notificationId);
       console.log('Notification selected date:', dateWithoutSeconds);
