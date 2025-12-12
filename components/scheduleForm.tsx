@@ -873,16 +873,16 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
                 style={clearButtonStyle}
                 onPress={handleClearOrCancel}
                 activeOpacity={0.7}>
-                <ThemedText style={clearButtonTextStyle}>{source === 'home' || source === 'calendar' ? 'Cancel' : 'Clear'}</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.2} style={clearButtonTextStyle}>{source === 'home' || source === 'calendar' ? 'Cancel' : 'Clear'}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle">Date & Time</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Date & Time</ThemedText>
               <TouchableOpacity
                 style={dateButtonStyle}
                 onPress={handleDateButtonPress}>
-                <ThemedText>{formatDateTime(selectedDate)}</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.8}>{formatDateTime(selectedDate)}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 
@@ -899,7 +899,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
               <TouchableOpacity
                 style={doneButtonStyle}
                 onPress={handleDonePress}>
-                <ThemedText style={doneButtonTextStyle}>Done</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.8} style={doneButtonTextStyle}>Done</ThemedText>
               </TouchableOpacity>
             )}
 
@@ -907,7 +907,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
               <TouchableOpacity
                 style={repeatButtonStyle}
                 onPress={handleRepeatButtonPress}>
-                <ThemedText>{formatRepeatOption(repeatOption)}</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.8}>{formatRepeatOption(repeatOption)}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 
@@ -929,12 +929,12 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
               <TouchableOpacity
                 style={doneButtonStyle}
                 onPress={handleRepeatDonePress}>
-                <ThemedText style={doneButtonTextStyle}>Done</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.8} style={doneButtonTextStyle}>Done</ThemedText>
               </TouchableOpacity>
             )}
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle">Message</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Message</ThemedText>
               <TextInput
                 ref={messageInputRef}
                 style={inputStyle}
@@ -945,11 +945,12 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
                 onFocus={handleMessageFocus}
                 multiline
                 numberOfLines={2}
+                maxFontSizeMultiplier={1.8}
               />
             </ThemedView>
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle">Note (optional)</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Note (optional)</ThemedText>
               <TextInput
                 ref={noteInputRef}
                 style={textAreaStyle}
@@ -960,11 +961,12 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
                 onFocus={handleNoteFocus}
                 multiline
                 numberOfLines={6}
+                maxFontSizeMultiplier={1.8}
               />
             </ThemedView>
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle">Link (optional)</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Link (optional)</ThemedText>
               <TextInput
                 ref={linkInputRef}
                 style={inputStyle}
@@ -974,13 +976,15 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
                 onChangeText={setLink}
                 onFocus={handleLinkFocus}
                 onBlur={handleLinkBlur}
+                maxFontSizeMultiplier={1.8}
+
               />
             </ThemedView>
 
             {alarmSupported && (
               <ThemedView style={styles.inputGroup}>
                 <ThemedView style={styles.switchContainer}>
-                  <ThemedText type="subtitle">Add an Alarm</ThemedText>
+                  <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Add an Alarm</ThemedText>
                   <Switch
                     value={scheduleAlarm}
                     onValueChange={setScheduleAlarm}
@@ -996,7 +1000,11 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'tab', onSucc
               style={scheduleButtonStyle}
               onPress={scheduleNotification}
               onLayout={handleButtonLayout}>
-              <ThemedText style={scheduleButtonTextStyle}>{isEditMode ? 'Update' : 'Schedule'} Notification</ThemedText>
+              <ThemedText
+                maxFontSizeMultiplier={1.8}
+                style={scheduleButtonTextStyle}>
+                {isEditMode ? 'Update' : 'Schedule'} Notification
+              </ThemedText>
             </TouchableOpacity>
           </ThemedView>
 

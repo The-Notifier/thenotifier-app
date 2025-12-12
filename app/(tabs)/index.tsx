@@ -328,14 +328,14 @@ export default function HomeScreen() {
           onPress={() => toggleExpand(item.id)}
           activeOpacity={0.7}>
           <ThemedView style={styles.notificationContent}>
-            <ThemedText type="defaultSemiBold" style={styles.title}>
+            <ThemedText type="defaultSemiBold" maxFontSizeMultiplier={1.6} style={styles.title}>
               {item.title}
             </ThemedText>
-            <ThemedText style={styles.message} numberOfLines={2}>
+            <ThemedText maxFontSizeMultiplier={1.6} style={styles.message} numberOfLines={2}>
               {item.message}
             </ThemedText>
             <ThemedView style={styles.dateTimeRow}>
-              <ThemedText style={styles.message} numberOfLines={1}>
+              <ThemedText maxFontSizeMultiplier={1.6} style={styles.message} numberOfLines={1}>
                 {formatDateTimeWithoutSeconds(item.scheduleDateTimeLocal)}
               </ThemedText>
               {item.hasAlarm && (
@@ -378,10 +378,10 @@ export default function HomeScreen() {
             onLayout={handleDrawerContentLayout}>
             {item.repeatOption && item.repeatOption !== 'none' && (
               <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
+                <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
                   Repeat:
                 </ThemedText>
-                <ThemedText style={styles.detailValue}>
+                <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
                   {formatRepeatOption(item.repeatOption, item.scheduleDateTime)}
                 </ThemedText>
               </ThemedView>
@@ -389,10 +389,10 @@ export default function HomeScreen() {
 
             {item.note && (
               <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
+                <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
                   Note:
                 </ThemedText>
-                <ThemedText style={styles.detailValue}>
+                <ThemedText maxFontSizeMultiplier={1.8} style={styles.detailValue}>
                   {item.note}
                 </ThemedText>
               </ThemedView>
@@ -400,10 +400,10 @@ export default function HomeScreen() {
 
             {item.link && (
               <ThemedView style={styles.detailRow}>
-                <ThemedText type="subtitle" style={styles.detailLabel}>
+                <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
                   Link:
                 </ThemedText>
-                <ThemedText style={styles.detailValue} numberOfLines={1}>
+                <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue} numberOfLines={1}>
                   {item.link}
                 </ThemedText>
               </ThemedView>
@@ -416,7 +416,7 @@ export default function HomeScreen() {
                 onPress={() => handleDelete(item)}
                 activeOpacity={0.7}>
                 <IconSymbol name="trash" size={20} color={colors.deleteButtonText} />
-                <ThemedText style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -424,7 +424,7 @@ export default function HomeScreen() {
                 onPress={() => handleEdit(item)}
                 activeOpacity={0.7}>
                 <IconSymbol name="pencil" size={20} color={colors.buttonText} />
-                <ThemedText style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
               </TouchableOpacity>
 
             </ThemedView>
@@ -592,6 +592,7 @@ export default function HomeScreen() {
           activeOpacity={0.7}>
           <ThemedText
             type="defaultSemiBold"
+            maxFontSizeMultiplier={1.4}
             style={[
               styles.tabText,
               activeTab === 'scheduled' && { color: colors.tint },
@@ -608,6 +609,7 @@ export default function HomeScreen() {
           activeOpacity={0.7}>
           <ThemedText
             type="defaultSemiBold"
+            maxFontSizeMultiplier={1.4}
             style={[
               styles.tabText,
               activeTab === 'archived' && { color: colors.tint },

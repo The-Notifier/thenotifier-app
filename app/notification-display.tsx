@@ -128,26 +128,26 @@ export default function NotificationDisplayScreen() {
     <ThemedView style={styles.container}>
       <ThemedView style={styles.content}>
         <ThemedView style={styles.messageContainer}>
-          <ThemedText type="title" style={styles.title}>{title}</ThemedText>
-          <ThemedText type="message" style={styles.message}>{message}</ThemedText>
+          <ThemedText type="title" maxFontSizeMultiplier={1.8} style={styles.title}>{title}</ThemedText>
+          <ThemedText type="message" maxFontSizeMultiplier={1.8} style={styles.message}>{message}</ThemedText>
           {note && (
             <>
-              <ThemedText type="subtitle">Note:</ThemedText>
-              <ThemedText style={styles.note} selectable>{note}</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.8}>Note:</ThemedText>
+              <ThemedText maxFontSizeMultiplier={1.8} style={styles.note} selectable>{note}</ThemedText>
             </>
           )}
           {link && (
             <TouchableOpacity
               style={linkButtonStyle}
               onPress={handleOpenLink}>
-              <ThemedText style={linkButtonTextStyle}>
+              <ThemedText maxFontSizeMultiplier={1.8} style={linkButtonTextStyle}>
                 {link.startsWith('thenotifier://calendar-event') ? 'Open Calendar Event' : 'Open Link'}
               </ThemedText>
             </TouchableOpacity>
           )}
         </ThemedView>
         <TouchableOpacity style={closeButtonStyle} onPress={() => router.back()}>
-          <ThemedText type="link" style={closeButtonTextStyle}>
+          <ThemedText type="link" maxFontSizeMultiplier={1.8} style={closeButtonTextStyle}>
             Close
           </ThemedText>
         </TouchableOpacity>
