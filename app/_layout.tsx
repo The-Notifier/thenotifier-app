@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import 'react-native-reanimated';
+import ToastManager from 'toastify-react-native';
 
 
 // Keep the splash screen visible while we fetch resources
@@ -219,6 +220,7 @@ export default function RootLayout() {
           />
         </Stack>
         <StatusBar style="auto" />
+        <ToastManager />
       </ThemeProvider>
     </KeyboardProvider>
   );

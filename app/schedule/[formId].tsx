@@ -3,11 +3,16 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useCallback, useEffect } from 'react';
 
 import { ScheduleForm, ScheduleFormParams } from '@/components/scheduleForm';
+import { Colors } from '@/constants/theme';
+import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Toast } from 'toastify-react-native';
 
 export default function ScheduleFormScreen() {
   const router = useRouter();
   const navigation = useNavigation();
   const allParams = useLocalSearchParams();
+  const colorScheme = useColorScheme();
+  const colors = Colors[colorScheme ?? 'light'];
 
   // Hide header for this screen
   useEffect(() => {
@@ -45,6 +50,19 @@ export default function ScheduleFormScreen() {
   const handleSuccess = useCallback(() => {
     // Always navigate to Home screen (Upcoming tab) after success
     // Small delay to ensure alert is dismissed before navigation
+    Toast.show({
+      type: 'success',
+      text1: isEditMode ? 'Your notification has been updated!' : 'Your notification has been scheduled!',
+      position: 'center',
+      visibilityTime: 3000,
+      autoHide: true,
+      backgroundColor: colors.toastBackground,
+      textColor: colors.toastTextColor,
+      progressBarColor: colors.toastProgressBar,
+      iconColor: colors.toastIconColor,
+      iconSize: 24,
+    });
+
     setTimeout(() => {
       router.replace('/(tabs)' as any);
     }, 100);

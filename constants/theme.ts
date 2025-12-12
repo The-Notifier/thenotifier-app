@@ -20,6 +20,10 @@ export const Colors = {
     tabIconSelected: tintColorLight,
     deleteButton: '#771118',
     deleteButtonText: '#B1E2FF',
+    toastBackground: '#f2f2f2A0',
+    toastProgressBar: '#8ddaff',
+    toastTextColor: '#242424',
+    toastIconColor: '#0d0d0d',
   },
   dark: {
     text: '#8ddaff',
@@ -32,6 +36,10 @@ export const Colors = {
     tabIconSelected: tintColorDark,
     deleteButton: '#771118',
     deleteButtonText: '#B1E2FF',
+    toastBackground: '#000000A0',
+    toastProgressBar: '#8ddaff',
+    toastTextColor: '#B1E2FF',
+    toastIconColor: '#8ddaff',
   },
 };
 
