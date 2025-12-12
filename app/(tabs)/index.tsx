@@ -61,6 +61,7 @@ export default function HomeScreen() {
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [animations] = useState<Map<number, Animated.Value>>(new Map());
   const [drawerHeights] = useState<Map<number, number>>(new Map());
+  const [buttonHeights] = useState<Map<number, number>>(new Map());
   const [drawerHeightUpdateTrigger, setDrawerHeightUpdateTrigger] = useState(0);
   const [refreshingScheduled, setRefreshingScheduled] = useState(false);
   const [refreshingArchived, setRefreshingArchived] = useState(false);
@@ -297,7 +298,21 @@ export default function HomeScreen() {
   const renderScheduledNotificationItem = ({ item }: { item: ScheduledNotification }) => {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
-    const measuredHeight = drawerHeights.get(item.id) || 300; // Default fallback height
+
+    // Check if notification has expandable content (repeat, note, or link)
+    const hasExpandableContent = (item.repeatOption && item.repeatOption !== 'none') || item.note || item.link;
+
+    // Get measured button height, fallback to 64px (accommodates larger text sizes)
+    // Ensure minimum of 64px to account for text scaling that might not be captured in measurement
+    const measuredButtonHeight = Math.max(buttonHeights.get(item.id) || 0, 56);
+
+    // Calculate dynamic minimum height for message-only notifications
+    // paddingTop (16) + marginTop (8) + buttonHeight (measured) + paddingBottom (16)
+    const DYNAMIC_MINIMUM_DRAWER_HEIGHT = 16 + 8 + measuredButtonHeight + 16;
+
+    // Use dynamic minimum height as default fallback for message-only notifications, otherwise use 300px
+    const defaultFallbackHeight = hasExpandableContent ? 300 : DYNAMIC_MINIMUM_DRAWER_HEIGHT;
+    const measuredHeight = drawerHeights.get(item.id) || defaultFallbackHeight;
 
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
@@ -312,10 +327,20 @@ export default function HomeScreen() {
     const handleDrawerContentLayout = (event: any) => {
       const { height } = event.nativeEvent.layout;
       // The measured height already includes padding (16px on all sides)
+      // For message-only notifications, enforce dynamic minimum height based on measured button height
+      // to ensure buttons are fully visible even with large text sizes
+      let finalHeight = height;
+
+      if (!hasExpandableContent) {
+        // Use the same measuredButtonHeight value that was used to calculate DYNAMIC_MINIMUM_DRAWER_HEIGHT
+        // This ensures consistency between the fallback and the layout handler
+        finalHeight = Math.max(height, DYNAMIC_MINIMUM_DRAWER_HEIGHT);
+      }
+
       // Store the height for use in animation
       const currentHeight = drawerHeights.get(item.id);
-      if (currentHeight !== height) {
-        drawerHeights.set(item.id, height);
+      if (currentHeight !== finalHeight) {
+        drawerHeights.set(item.id, finalHeight);
         // Trigger re-render to update animation with new height
         setDrawerHeightUpdateTrigger(prev => prev + 1);
       }
@@ -414,9 +439,39 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={[styles.actionButton, { backgroundColor: colors.deleteButton }]}
                 onPress={() => handleDelete(item)}
-                activeOpacity={0.7}>
+                activeOpacity={0.7}
+                onLayout={(event) => {
+                  const { height } = event.nativeEvent.layout;
+                  // Store the measured button height to calculate dynamic minimum drawer height
+                  // Measure the actual button height (not container) for accurate measurement
+                  // Ensure minimum of 64px to account for text scaling
+                  const measuredHeight = Math.max(height, 56);
+                  const currentButtonHeight = buttonHeights.get(item.id);
+                  // Only update if height is valid and different, or if we don't have a measurement yet
+                  if (measuredHeight > 0 && currentButtonHeight !== measuredHeight) {
+                    buttonHeights.set(item.id, measuredHeight);
+
+                    // For message-only notifications, immediately recalculate drawer height
+                    if (!hasExpandableContent) {
+                      const dynamicMinimum = 16 + 8 + measuredHeight + 16;
+                      const currentDrawerHeight = drawerHeights.get(item.id);
+                      // Always update if we don't have a drawer height, or if current is less than minimum
+                      if (!currentDrawerHeight || currentDrawerHeight < dynamicMinimum) {
+                        drawerHeights.set(item.id, dynamicMinimum);
+                        // Trigger re-render to update drawer height calculation
+                        setDrawerHeightUpdateTrigger(prev => prev + 1);
+                      } else {
+                        // Even if drawer height is already set, trigger re-render to ensure consistency
+                        setDrawerHeightUpdateTrigger(prev => prev + 1);
+                      }
+                    } else {
+                      // Trigger re-render even for expandable content to ensure button height is stored
+                      setDrawerHeightUpdateTrigger(prev => prev + 1);
+                    }
+                  }
+                }}>
                 <IconSymbol name="trash" size={20} color={colors.deleteButtonText} />
-                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -424,7 +479,7 @@ export default function HomeScreen() {
                 onPress={() => handleEdit(item)}
                 activeOpacity={0.7}>
                 <IconSymbol name="pencil" size={20} color={colors.buttonText} />
-                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
               </TouchableOpacity>
 
             </ThemedView>
