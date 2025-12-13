@@ -1,8 +1,8 @@
 import { CalendarChangeModal } from '@/components/calendar-change-modal';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { archiveScheduledNotifications, initDatabase, updateArchivedNotificationData } from '@/utils/database';
 import { ChangedCalendarEvent, checkCalendarEventChanges } from '@/utils/calendar-check';
 import { calendarCheckEvents } from '@/utils/calendar-check-events';
+import { archiveScheduledNotifications, initDatabase, updateArchivedNotificationData } from '@/utils/database';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { EventSubscription } from 'expo-modules-core';
