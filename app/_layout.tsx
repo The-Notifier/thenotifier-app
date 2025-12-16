@@ -2,7 +2,7 @@ import { CalendarChangeModal } from '@/components/calendar-change-modal';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ChangedCalendarEvent, checkCalendarEventChanges } from '@/utils/calendar-check';
 import { calendarCheckEvents } from '@/utils/calendar-check-events';
-import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, initDatabase, updateArchivedNotificationData } from '@/utils/database';
+import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, initDatabase, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { EventSubscription } from 'expo-modules-core';
@@ -247,9 +247,19 @@ export default function RootLayout() {
         // App came to foreground, check for calendar changes
         performCalendarCheck();
 
+        // Migrate eligible rolling-window repeats to Expo repeats (before replenishing)
+        migrateRollingWindowRepeatsToExpo().catch((error) => {
+          console.error('Failed to migrate rolling-window repeats:', error);
+        });
+
         // Replenish daily alarm windows (ensure 14 future alarms per daily notification)
         ensureDailyAlarmWindowForAllNotifications().catch((error) => {
           console.error('Failed to replenish daily alarm windows:', error);
+        });
+
+        // Replenish rolling-window notification instances (ensure required window size per rolling-window notification)
+        ensureRollingWindowNotificationInstances().catch((error) => {
+          console.error('Failed to replenish rolling-window notification instances:', error);
         });
       }
     });

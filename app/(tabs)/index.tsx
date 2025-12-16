@@ -10,7 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { checkCalendarEventChanges } from '@/utils/calendar-check';
-import { deleteScheduledNotification, getAllArchivedNotificationData, getAllScheduledNotificationData, getAllActiveDailyAlarmInstances, markAllDailyAlarmInstancesCancelled } from '@/utils/database';
+import { deleteScheduledNotification, getAllArchivedNotificationData, getAllScheduledNotificationData, getAllActiveDailyAlarmInstances, getAllActiveRepeatNotificationInstances, markAllDailyAlarmInstancesCancelled, markAllRepeatNotificationInstancesCancelled } from '@/utils/database';
 import { Toast } from 'toastify-react-native';
 
 type ScheduledNotification = {
@@ -198,8 +198,26 @@ export default function HomeScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Cancel the scheduled notification
-              await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+              // Check if this is a rolling-window managed notification
+              const isRollingWindow = notification.notificationTrigger && (notification.notificationTrigger as any).type === 'DATE_WINDOW';
+              
+              if (isRollingWindow) {
+                // Cancel all rolling-window notification instances
+                const repeatInstances = await getAllActiveRepeatNotificationInstances(notification.notificationId);
+                for (const instance of repeatInstances) {
+                  try {
+                    await Notifications.cancelScheduledNotificationAsync(instance.instanceNotificationId);
+                    console.log('Cancelled rolling-window notification instance on delete:', instance.instanceNotificationId);
+                  } catch (instanceError) {
+                    console.error('Failed to cancel rolling-window notification instance:', instance.instanceNotificationId, ', error:', instanceError);
+                  }
+                }
+                await markAllRepeatNotificationInstancesCancelled(notification.notificationId);
+                console.log('Marked all rolling-window notification instances as cancelled on delete');
+              } else {
+                // Cancel the single scheduled notification
+                await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+              }
               
               // If this is a daily repeating alarm, cancel all daily alarm instances
               if (notification.repeatOption === 'daily' && notification.hasAlarm) {

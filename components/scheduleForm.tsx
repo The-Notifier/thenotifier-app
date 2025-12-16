@@ -9,7 +9,7 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
-import { archiveScheduledNotifications, deleteScheduledNotification, getAlarmPermissionDenied, getAllActiveDailyAlarmInstances, markAllDailyAlarmInstancesCancelled, saveAlarmPermissionDenied, saveScheduledNotificationData, scheduleDailyAlarmWindow } from '@/utils/database';
+import { archiveScheduledNotifications, deleteScheduledNotification, getAlarmPermissionDenied, getAllActiveDailyAlarmInstances, getAllActiveRepeatNotificationInstances, getWindowSize, markAllDailyAlarmInstancesCancelled, markAllRepeatNotificationInstancesCancelled, saveAlarmPermissionDenied, saveScheduledNotificationData, scheduleDailyAlarmWindow, scheduleRollingWindowNotifications } from '@/utils/database';
 import { getPermissionInstructions } from '@/utils/permissions';
 import * as Crypto from 'expo-crypto';
 import { DefaultKeyboardToolbarTheme, KeyboardAwareScrollView, KeyboardToolbar, KeyboardToolbarProps } from 'react-native-keyboard-controller';
@@ -797,17 +797,36 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
     // If in edit mode, cancel existing notification and alarm, then delete from DB
     if (isEditMode && editingNotificationId) {
       try {
-        await Notifications.cancelScheduledNotificationAsync(editingNotificationId);
-        console.log('Cancelled existing notification:', editingNotificationId);
+        // Check if this is a rolling-window managed notification
+        const { getAllScheduledNotificationData } = await import('@/utils/database');
+        const allNotifications = await getAllScheduledNotificationData();
+        const existingNotification = allNotifications.find(n => n.notificationId === editingNotificationId);
+        const isRollingWindow = existingNotification?.notificationTrigger && (existingNotification.notificationTrigger as any).type === 'DATE_WINDOW';
+
+        if (isRollingWindow) {
+          // Cancel all rolling-window notification instances
+          const repeatInstances = await getAllActiveRepeatNotificationInstances(editingNotificationId);
+          for (const instance of repeatInstances) {
+            try {
+              await Notifications.cancelScheduledNotificationAsync(instance.instanceNotificationId);
+              console.log('Cancelled rolling-window notification instance on edit:', instance.instanceNotificationId);
+            } catch (instanceError) {
+              console.error('Failed to cancel rolling-window notification instance:', instance.instanceNotificationId, ', error:', instanceError);
+            }
+          }
+          await markAllRepeatNotificationInstancesCancelled(editingNotificationId);
+          console.log('Marked all rolling-window notification instances as cancelled on edit');
+        } else {
+          // Cancel the single scheduled notification
+          await Notifications.cancelScheduledNotificationAsync(editingNotificationId);
+          console.log('Cancelled existing notification:', editingNotificationId);
+        }
+
         const alarmId = editingNotificationId.substring("thenotifier-".length);
         console.log('Cancelling existing alarm with ID:', alarmId);
         if (editingHasAlarm) {
           try {
             // Check if this is a daily repeating alarm - if so, cancel all instances
-            const { getAllScheduledNotificationData } = await import('@/utils/database');
-            const allNotifications = await getAllScheduledNotificationData();
-            const existingNotification = allNotifications.find(n => n.notificationId === editingNotificationId);
-
             if (existingNotification?.repeatOption === 'daily') {
               // Cancel all daily alarm instances
               const dailyInstances = await getAllActiveDailyAlarmInstances(editingNotificationId);
@@ -889,11 +908,21 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       console.log('notificationContent:', notificationContent);
 
       let notificationTrigger: Notifications.NotificationTriggerInput;
+      let useRollingWindow = false;
       const hour = dateWithoutSeconds.getHours();
       const minute = dateWithoutSeconds.getMinutes();
       const day = dateWithoutSeconds.getDate();
       const dayOfWeek = dateWithoutSeconds.getDay();
       const month = dateWithoutSeconds.getMonth();
+
+      const now = new Date();
+      const oneDayFromNow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const oneWeekFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+      const oneMonthFromNow = new Date(now);
+      oneMonthFromNow.setMonth(oneMonthFromNow.getMonth() + 1);
+      const oneYearFromNow = new Date(now);
+      oneYearFromNow.setFullYear(oneYearFromNow.getFullYear() + 1);
+
       switch (repeatOption) {
         case 'none':
           notificationTrigger = {
@@ -902,54 +931,128 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
           };
           break;
         case 'daily':
-          notificationTrigger = {
-            type: Notifications.SchedulableTriggerInputTypes.DAILY,
-            hour: hour,
-            minute: minute,
-          };
+          if (dateWithoutSeconds >= oneDayFromNow) {
+            // Use rolling window
+            useRollingWindow = true;
+            notificationTrigger = {
+              type: 'DATE_WINDOW' as any,
+              window: 'daily14',
+            } as any;
+          } else {
+            // Use existing DAILY trigger
+            notificationTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.DAILY,
+              hour: hour,
+              minute: minute,
+            };
+          }
           break;
         case 'weekly':
-          notificationTrigger = {
-            type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-            weekday: dayOfWeek,
-            hour: hour,
-            minute: minute,
-          };
+          if (dateWithoutSeconds >= oneWeekFromNow) {
+            // Use rolling window
+            useRollingWindow = true;
+            notificationTrigger = {
+              type: 'DATE_WINDOW' as any,
+              window: 'weekly4',
+            } as any;
+          } else {
+            // Use existing WEEKLY trigger
+            notificationTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+              weekday: dayOfWeek,
+              hour: hour,
+              minute: minute,
+            };
+          }
           break;
         case 'monthly':
-          notificationTrigger = {
-            type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
-            day: day,
-            hour: hour,
-            minute: minute,
-          };
+          if (dateWithoutSeconds >= oneMonthFromNow) {
+            // Use rolling window
+            useRollingWindow = true;
+            notificationTrigger = {
+              type: 'DATE_WINDOW' as any,
+              window: 'monthly4',
+            } as any;
+          } else {
+            // Use existing MONTHLY trigger
+            notificationTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
+              day: day,
+              hour: hour,
+              minute: minute,
+            };
+          }
           break;
         case 'yearly':
-          notificationTrigger = {
-            type: Notifications.SchedulableTriggerInputTypes.YEARLY,
-            month: month,
-            day: day,
-            hour: hour,
-            minute: minute,
-          };
+          if (dateWithoutSeconds >= oneYearFromNow) {
+            // Use rolling window
+            useRollingWindow = true;
+            notificationTrigger = {
+              type: 'DATE_WINDOW' as any,
+              window: 'yearly2',
+            } as any;
+          } else {
+            // Use existing YEARLY trigger
+            notificationTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.YEARLY,
+              month: month,
+              day: day,
+              hour: hour,
+              minute: minute,
+            };
+          }
           break;
       }
 
-      if (Platform.OS === 'android') {
-        (notificationTrigger as any).channelId = "thenotifier";
+      if (useRollingWindow) {
+        // Check OS notification limit before scheduling rolling window
+        const scheduledNotifications = await Notifications.getAllScheduledNotificationsAsync();
+        const windowSize = getWindowSize(repeatOption as 'daily' | 'weekly' | 'monthly' | 'yearly');
+        const remainingCapacity = MAX_SCHEDULED_NOTIFICATION_COUNT - scheduledNotifications.length;
+
+        if (windowSize > remainingCapacity) {
+          const neededToDelete = windowSize - remainingCapacity;
+          Alert.alert(
+            'Maximum Notifications Reached',
+            `Your phone limits the number of notifications that can be scheduled. To schedule this, you will need to delete ${neededToDelete} notifications.`,
+            [{ text: 'OK' }]
+          );
+          return;
+        }
+
+        // Schedule rolling window DATE notifications
+        const result = await scheduleRollingWindowNotifications(
+          notificationId,
+          dateWithoutSeconds,
+          repeatOption as 'daily' | 'weekly' | 'monthly' | 'yearly',
+          notificationContent
+        );
+
+        console.log(`Scheduled ${result.scheduled} rolling-window notification instances, skipped ${result.skipped}`);
+
+        // Save parent notification record
+        await saveScheduledNotificationData(notificationId, notificationTitle, message, note, link ? link : '', dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString(), repeatOption, notificationTrigger, scheduleAlarm && alarmSupported, initialParams?.calendarId, initialParams?.originalEventId, initialParams?.location, initialParams?.originalEventTitle, initialParams?.originalEventStartDate, initialParams?.originalEventEndDate, initialParams?.originalEventLocation, initialParams?.originalEventRecurring, 'rollingWindow');
+        console.log('Rolling-window notification data saved successfully');
+      } else {
+        // Use existing repeating trigger approach
+        if (Platform.OS === 'android') {
+          (notificationTrigger as any).channelId = "thenotifier";
+        }
+        console.log('notificationTrigger:', notificationTrigger);
+
+        console.log('=== SCHEDULE NOTIFICATION ASYNC ===');
+        await Notifications.scheduleNotificationAsync({
+          identifier: notificationId,
+          content: notificationContent,
+          trigger: notificationTrigger,
+        });
+
+        console.log('Notification scheduled successfully, saving notification data...', notificationId, notificationTitle, message, note, link, dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString(), repeatOption, notificationTrigger, scheduleAlarm && alarmSupported, initialParams?.calendarId, initialParams?.originalEventId, initialParams?.location);
+        // Determine repeatMethod: 'expo' for Expo repeating triggers, null for one-time
+        const repeatMethodValue = (repeatOption && repeatOption !== 'none' && !useRollingWindow) ? 'expo' : null;
+        await saveScheduledNotificationData(notificationId, notificationTitle, message, note, link ? link : '', dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString(), repeatOption, notificationTrigger, scheduleAlarm && alarmSupported, initialParams?.calendarId, initialParams?.originalEventId, initialParams?.location, initialParams?.originalEventTitle, initialParams?.originalEventStartDate, initialParams?.originalEventEndDate, initialParams?.originalEventLocation, initialParams?.originalEventRecurring, repeatMethodValue);
+        console.log('Notification data saved successfully');
       }
-      console.log('notificationTrigger:', notificationTrigger);
-
-      console.log('=== SCHEDULE NOTIFICATION ASYNC ===');
-      await Notifications.scheduleNotificationAsync({
-        identifier: notificationId,
-        content: notificationContent,
-        trigger: notificationTrigger,
-      });
-
-      console.log('Notification scheduled successfully, saving notification data...', notificationId, notificationTitle, message, note, link, dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString(), repeatOption, notificationTrigger, scheduleAlarm && alarmSupported, initialParams?.calendarId, initialParams?.originalEventId, initialParams?.location);
-      await saveScheduledNotificationData(notificationId, notificationTitle, message, note, link ? link : '', dateWithoutSeconds.toISOString(), dateWithoutSeconds.toLocaleString(), repeatOption, notificationTrigger, scheduleAlarm && alarmSupported, initialParams?.calendarId, initialParams?.originalEventId, initialParams?.location, initialParams?.originalEventTitle, initialParams?.originalEventStartDate, initialParams?.originalEventEndDate, initialParams?.originalEventLocation, initialParams?.originalEventRecurring);
-      console.log('Notification data saved successfully');
 
       // If editing and alarm is disabled, cancel all daily alarm instances
       if (isEditMode && !scheduleAlarm && editingHasAlarm) {
@@ -1278,11 +1381,33 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       console.log('Notification note:', note);
       console.log('Notification link:', link);
 
-      // Show warning for daily alarms
-      if (repeatOption === 'daily' && scheduleAlarm && alarmSupported) {
+      // Show warning alerts for rolling-window notifications (only when using rolling-window strategy)
+      if (useRollingWindow && repeatOption !== 'none') {
+        let alertTitle = '';
+        let alertMessage = '';
+
+        switch (repeatOption) {
+          case 'daily':
+            alertTitle = 'Daily Notification';
+            alertMessage = "To prevent your phone from stopping this daily notification, make sure you use this app at least once every two week period after the start date.";
+            break;
+          case 'weekly':
+            alertTitle = 'Weekly Notification';
+            alertMessage = "To prevent your phone from stopping this weekly notification, make sure you use this app at least once a month after the start date.";
+            break;
+          case 'monthly':
+            alertTitle = 'Monthly Notification';
+            alertMessage = "To prevent your phone from stopping this monthly notification, make sure you use this app at least once a month after the start date.";
+            break;
+          case 'yearly':
+            alertTitle = 'Yearly Notification';
+            alertMessage = "To prevent your phone from stopping this yearly notification, make sure you use this app at least once a year after the start date.";
+            break;
+        }
+
         Alert.alert(
-          'Daily Alarm',
-          "Daily alarms may stop working if the app hasn't been used for two weeks.",
+          alertTitle,
+          alertMessage,
           [
             {
               text: 'OK',
@@ -1505,7 +1630,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       <KeyboardToolbar
         opacity="CF"
         offset={{
-          opened: (source === 'tab' || source === 'schedule') ? 100 : 20,
+          opened: (source === 'tab' || source === 'schedule') ? 95 : 15,
           closed: 0
         }}
         theme={theme}>
@@ -1598,6 +1723,9 @@ const styles = StyleSheet.create({
   },
   keyboardToolbar: {
     width: '100%',
+  },
+  keyboardToolbarButton: {
+    fontSize: 18,
   },
   picker: {
     padding: 12,
