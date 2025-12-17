@@ -2,7 +2,7 @@ import { CalendarChangeModal } from '@/components/calendar-change-modal';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ChangedCalendarEvent, checkCalendarEventChanges } from '@/utils/calendar-check';
 import { calendarCheckEvents } from '@/utils/calendar-check-events';
-import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, initDatabase, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
+import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, getScheduledNotificationData, initDatabase, insertRepeatOccurrence, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { EventSubscription } from 'expo-modules-core';
@@ -72,6 +72,32 @@ export default function RootLayout() {
 
       const data = notification.request.content.data;
       console.log('handleNotificationNavigation: Data:', data);
+
+      // Record repeat occurrence if this is a repeating notification
+      try {
+        // For rolling-window instances, use parentNotificationId from data
+        const parentId = (data?.notificationId as string) || notificationId;
+        const scheduledNotification = await getScheduledNotificationData(parentId);
+
+        if (scheduledNotification && scheduledNotification.repeatOption && scheduledNotification.repeatOption !== 'none') {
+          // Compute fireDateTime from notification.date or use current time
+          const fireDateTime = notification.date ? new Date(notification.date * 1000).toISOString() : new Date().toISOString();
+
+          // Get snapshot from parent notification
+          const snapshot = {
+            title: scheduledNotification.title,
+            message: scheduledNotification.message,
+            note: scheduledNotification.note || null,
+            link: scheduledNotification.link || null,
+          };
+
+          await insertRepeatOccurrence(parentId, fireDateTime, 'tap', snapshot);
+          console.log(`[RepeatOccurrence] Recorded tap occurrence for ${parentId} at ${fireDateTime}`);
+        }
+      } catch (error) {
+        console.error('handleNotificationNavigation: Failed to record repeat occurrence:', error);
+      }
+
       if (data?.message && typeof data.message === 'string') {
         console.log('handleNotificationNavigation: Navigating to notification display with message:', data.message);
         try {
@@ -242,7 +268,7 @@ export default function RootLayout() {
 
   // AppState listener for focus detection
   useEffect(() => {
-    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+    const subscription = AppState.addEventListener('change', async (nextAppState: AppStateStatus) => {
       if (nextAppState === 'active') {
         // App came to foreground, check for calendar changes
         performCalendarCheck();
@@ -250,6 +276,12 @@ export default function RootLayout() {
         // Migrate eligible rolling-window repeats to Expo repeats (before replenishing)
         migrateRollingWindowRepeatsToExpo().catch((error) => {
           console.error('Failed to migrate rolling-window repeats:', error);
+        });
+
+        // Catch up repeat occurrences (for notifications that fired while app was inactive)
+        const { catchUpRepeatOccurrences } = await import('@/utils/database');
+        catchUpRepeatOccurrences().catch((error) => {
+          console.error('Failed to catch up repeat occurrences:', error);
         });
 
         // Replenish daily alarm windows (ensure 14 future alarms per daily notification)

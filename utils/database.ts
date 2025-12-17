@@ -322,6 +322,31 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_repeatNotificationInstance_fireDateTime ON repeatNotificationInstance (fireDateTime);
     `);
 
+    // Create repeatNotificationOccurrence table if it doesn't exist (for tracking delivered occurrences of repeating notifications)
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS repeatNotificationOccurrence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parentNotificationId TEXT NOT NULL,
+        fireDateTime TEXT NOT NULL,
+        recordedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        source TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        note TEXT DEFAULT NULL,
+        link TEXT DEFAULT NULL,
+        UNIQUE(parentNotificationId, fireDateTime)
+      );
+    `);
+
+    // Create indexes for repeatNotificationOccurrence table
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationOccurrence_parentId_fireDateTime ON repeatNotificationOccurrence (parentNotificationId, fireDateTime);
+    `);
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationOccurrence_fireDateTime ON repeatNotificationOccurrence (fireDateTime);
+    `);
+
     isInitialized = true;
     console.log('Database initialized successfully');
   } catch (error: any) {
@@ -1229,6 +1254,12 @@ export const scheduleRollingWindowNotifications = async (
     try {
       const instanceNotificationId = "thenotifier-instance-" + Crypto.randomUUID();
 
+      // Ensure parentNotificationId is included in notification data for occurrence tracking
+      const notificationDataWithParent = {
+        ...notificationContent.data,
+        notificationId: parentNotificationId,
+      };
+
       const notificationTrigger: Notifications.NotificationTriggerInput = {
         type: Notifications.SchedulableTriggerInputTypes.DATE,
         date: occurrenceDate,
@@ -1240,7 +1271,10 @@ export const scheduleRollingWindowNotifications = async (
 
       await Notifications.scheduleNotificationAsync({
         identifier: instanceNotificationId,
-        content: notificationContent,
+        content: {
+          ...notificationContent,
+          data: notificationDataWithParent,
+        },
         trigger: notificationTrigger,
       });
 
@@ -1833,6 +1867,204 @@ export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void>
       console.error(`Failed to ensure daily alarm window for ${notification.notificationId}:`, error);
       // Continue with other notifications
     }
+  }
+};
+
+// Repeat Notification Occurrence CRUD operations
+
+// Insert a repeat notification occurrence
+export const insertRepeatOccurrence = async (
+  parentNotificationId: string,
+  fireDateTime: string,
+  source: 'tap' | 'foreground' | 'catchup',
+  snapshot: { title: string; message: string; note?: string | null; link?: string | null }
+): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    const titleSql = `'${escapeSql(snapshot.title)}'`;
+    const messageSql = `'${escapeSql(snapshot.message)}'`;
+    const noteSql = snapshot.note ? `'${escapeSql(snapshot.note)}'` : 'NULL';
+    const linkSql = snapshot.link ? `'${escapeSql(snapshot.link)}'` : 'NULL';
+    const sourceSql = `'${escapeSql(source)}'`;
+
+    // Use INSERT OR IGNORE to prevent duplicates (idempotent)
+    await db.execAsync(`
+      INSERT OR IGNORE INTO repeatNotificationOccurrence 
+      (parentNotificationId, fireDateTime, source, title, message, note, link, recordedAt)
+      VALUES 
+      ('${escapeSql(parentNotificationId)}', '${fireDateTime}', ${sourceSql}, ${titleSql}, ${messageSql}, ${noteSql}, ${linkSql}, CURRENT_TIMESTAMP);
+    `);
+  } catch (error: any) {
+    console.error('Failed to insert repeat occurrence:', error);
+    throw new Error(`Failed to insert repeat occurrence: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get latest repeat occurrence fire date for a parent notification
+export const getLatestRepeatOccurrenceFireDate = async (parentNotificationId: string): Promise<string | null> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{ maxFireDateTime: string | null }>(
+      `SELECT MAX(fireDateTime) as maxFireDateTime FROM repeatNotificationOccurrence WHERE parentNotificationId = '${parentNotificationId.replace(/'/g, "''")}';`
+    );
+    return result?.maxFireDateTime || null;
+  } catch (error: any) {
+    console.error('Failed to get latest repeat occurrence fire date:', error);
+    return null;
+  }
+};
+
+// Get repeat occurrences (for Past tab)
+export const getRepeatOccurrences = async (limit?: number, sinceIso?: string): Promise<Array<{
+  id: number;
+  parentNotificationId: string;
+  fireDateTime: string;
+  recordedAt: string;
+  source: string;
+  title: string;
+  message: string;
+  note: string | null;
+  link: string | null;
+}>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    let query = `SELECT id, parentNotificationId, fireDateTime, recordedAt, source, title, message, note, link 
+                 FROM repeatNotificationOccurrence`;
+
+    if (sinceIso) {
+      query += ` WHERE fireDateTime >= '${sinceIso.replace(/'/g, "''")}'`;
+    }
+
+    query += ` ORDER BY fireDateTime DESC`;
+
+    if (limit) {
+      query += ` LIMIT ${limit}`;
+    }
+
+    const result = await db.getAllAsync<{
+      id: number;
+      parentNotificationId: string;
+      fireDateTime: string;
+      recordedAt: string;
+      source: string;
+      title: string;
+      message: string;
+      note: string | null;
+      link: string | null;
+    }>(query);
+
+    return result || [];
+  } catch (error: any) {
+    console.error('Failed to get repeat occurrences:', error);
+    return [];
+  }
+};
+
+// Catch up repeat occurrences (for notifications that fired while app was inactive)
+export const catchUpRepeatOccurrences = async (): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    const scheduledNotifications = await getAllScheduledNotificationData();
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    // Filter for repeating notifications
+    const repeatingNotifications = scheduledNotifications.filter(
+      n => n.repeatOption && n.repeatOption !== 'none' && ['daily', 'weekly', 'monthly', 'yearly'].includes(n.repeatOption)
+    );
+
+    console.log(`[CatchUp] Found ${repeatingNotifications.length} repeating notifications to check`);
+
+    for (const notification of repeatingNotifications) {
+      try {
+        // Get latest recorded occurrence, or use scheduleDateTime as starting point
+        const lastFireIso = await getLatestRepeatOccurrenceFireDate(notification.notificationId);
+        const startDate = lastFireIso ? new Date(lastFireIso) : new Date(notification.scheduleDateTime);
+
+        // Skip if startDate is in the future
+        if (startDate >= now) {
+          continue;
+        }
+
+        // Compute expected occurrences between startDate (exclusive) and now (inclusive)
+        const occurrences: Date[] = [];
+        let currentDate = new Date(startDate);
+        const maxOccurrences = 200; // Cap to avoid huge loops
+
+        // Get snapshot data from parent notification
+        const snapshot = {
+          title: notification.title,
+          message: notification.message,
+          note: notification.note || null,
+          link: notification.link || null,
+        };
+
+        // Determine increment based on repeatOption
+        while (currentDate < now && occurrences.length < maxOccurrences) {
+          // Increment to next occurrence
+          switch (notification.repeatOption) {
+            case 'daily':
+              currentDate.setDate(currentDate.getDate() + 1);
+              break;
+            case 'weekly':
+              currentDate.setDate(currentDate.getDate() + 7);
+              break;
+            case 'monthly': {
+              const originalDay = new Date(notification.scheduleDateTime).getDate();
+              currentDate.setMonth(currentDate.getMonth() + 1);
+              const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+              currentDate.setDate(clampedDay);
+              break;
+            }
+            case 'yearly': {
+              const originalDay = new Date(notification.scheduleDateTime).getDate();
+              const originalMonth = new Date(notification.scheduleDateTime).getMonth();
+              currentDate.setFullYear(currentDate.getFullYear() + 1);
+              const clampedDay = clampDayOfMonth(currentDate.getFullYear(), originalMonth, originalDay);
+              currentDate.setDate(clampedDay);
+              currentDate.setMonth(originalMonth);
+              break;
+            }
+          }
+
+          // Only add if still in the past
+          if (currentDate <= now) {
+            occurrences.push(new Date(currentDate));
+          } else {
+            break;
+          }
+        }
+
+        // Insert occurrences with source 'catchup'
+        for (const occurrenceDate of occurrences) {
+          await insertRepeatOccurrence(
+            notification.notificationId,
+            occurrenceDate.toISOString(),
+            'catchup',
+            snapshot
+          );
+        }
+
+        if (occurrences.length > 0) {
+          console.log(`[CatchUp] Inserted ${occurrences.length} catch-up occurrences for ${notification.notificationId}`);
+        }
+      } catch (error) {
+        console.error(`[CatchUp] Failed to catch up occurrences for ${notification.notificationId}:`, error);
+        // Continue with other notifications
+      }
+    }
+
+    console.log('[CatchUp] Catch-up complete');
+  } catch (error) {
+    console.error('[CatchUp] Catch-up failed:', error);
   }
 };
 
