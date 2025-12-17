@@ -10,7 +10,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { checkCalendarEventChanges } from '@/utils/calendar-check';
-import { deleteScheduledNotification, getAllArchivedNotificationData, getAllScheduledNotificationData, getAllActiveDailyAlarmInstances, markAllDailyAlarmInstancesCancelled } from '@/utils/database';
+import { deleteScheduledNotification, getAllActiveDailyAlarmInstances, getAllActiveRepeatNotificationInstances, getAllArchivedNotificationData, getAllScheduledNotificationData, getRepeatOccurrences, getScheduledNotificationData, insertRepeatOccurrence, markAllDailyAlarmInstancesCancelled, markAllRepeatNotificationInstancesCancelled } from '@/utils/database';
 import { Toast } from 'toastify-react-native';
 
 type ScheduledNotification = {
@@ -52,6 +52,28 @@ type ArchivedNotification = {
   archivedAt: string;
 };
 
+type RepeatOccurrenceItem = {
+  id: number;
+  parentNotificationId: string;
+  fireDateTime: string;
+  recordedAt: string;
+  source: string;
+  title: string;
+  message: string;
+  note: string | null;
+  link: string | null;
+  isRepeatOccurrence: true;
+  scheduleDateTime: string; // Added during merge for sorting
+  scheduleDateTimeLocal: string; // Added during merge for display
+};
+
+type PastItem = ArchivedNotification | RepeatOccurrenceItem;
+
+// Type guard function
+const isRepeatOccurrence = (item: PastItem): item is RepeatOccurrenceItem => {
+  return 'isRepeatOccurrence' in item && item.isRepeatOccurrence === true;
+};
+
 type TabType = 'scheduled' | 'archived';
 
 export default function HomeScreen() {
@@ -59,6 +81,7 @@ export default function HomeScreen() {
   const [activeTab, setActiveTab] = useState<TabType>('scheduled');
   const [scheduledNotifications, setScheduledNotifications] = useState<ScheduledNotification[]>([]);
   const [archivedNotifications, setArchivedNotifications] = useState<ArchivedNotification[]>([]);
+  const [pastItems, setPastItems] = useState<PastItem[]>([]);
   const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set());
   const [animations] = useState<Map<number, Animated.Value>>(new Map());
   const [drawerHeights] = useState<Map<number, number>>(new Map());
@@ -98,10 +121,36 @@ export default function HomeScreen() {
 
   const loadArchivedNotifications = async () => {
     try {
-      const data = await getAllArchivedNotificationData();
-      setArchivedNotifications(data);
+      // Load archived one-time notifications
+      const archivedData = await getAllArchivedNotificationData();
+
+      // Load repeat occurrences
+      const repeatOccurrences = await getRepeatOccurrences();
+
+      // Merge into unified PastItem list
+      const merged: PastItem[] = [
+        ...archivedData.map(item => ({ ...item, isRepeatOccurrence: false as const })),
+        ...repeatOccurrences.map(item => ({
+          ...item,
+          isRepeatOccurrence: true as const,
+          // Use fireDateTime as the display time for sorting
+          scheduleDateTime: item.fireDateTime,
+          scheduleDateTimeLocal: new Date(item.fireDateTime).toLocaleString(),
+        })),
+      ];
+
+      // Sort by display time DESC (most recent first)
+      merged.sort((a, b) => {
+        const timeA = isRepeatOccurrence(a) ? a.fireDateTime : a.scheduleDateTime;
+        const timeB = isRepeatOccurrence(b) ? b.fireDateTime : b.scheduleDateTime;
+        return timeB.localeCompare(timeA);
+      });
+
+      setPastItems(merged);
+      setArchivedNotifications(archivedData);
+
       // Initialize animations for new items
-      data.forEach((item) => {
+      merged.forEach((item) => {
         if (!animations.has(item.id)) {
           animations.set(item.id, new Animated.Value(0));
         }
@@ -151,7 +200,34 @@ export default function HomeScreen() {
 
   useEffect(() => {
     // Refresh when notifications are received
-    const unsubscribe = Notifications.addNotificationReceivedListener(() => {
+    const unsubscribe = Notifications.addNotificationReceivedListener(async (notification) => {
+      // Record repeat occurrence if this is a repeating notification
+      try {
+        const notificationId = notification.request.identifier;
+        // For rolling-window instances, use parentNotificationId from data
+        const data = notification.request.content.data;
+        const parentId = (data?.notificationId as string) || notificationId;
+        const scheduledNotification = await getScheduledNotificationData(parentId);
+
+        if (scheduledNotification && scheduledNotification.repeatOption && scheduledNotification.repeatOption !== 'none') {
+          // Compute fireDateTime from notification.date or use current time
+          const fireDateTime = notification.date ? new Date(notification.date * 1000).toISOString() : new Date().toISOString();
+
+          // Get snapshot from parent notification
+          const snapshot = {
+            title: scheduledNotification.title,
+            message: scheduledNotification.message,
+            note: scheduledNotification.note || null,
+            link: scheduledNotification.link || null,
+          };
+
+          await insertRepeatOccurrence(parentId, fireDateTime, 'foreground', snapshot);
+          console.log(`[RepeatOccurrence] Recorded foreground occurrence for ${parentId} at ${fireDateTime}`);
+        }
+      } catch (error) {
+        console.error('Failed to record repeat occurrence from foreground listener:', error);
+      }
+
       // Small delay to ensure database is updated
       setTimeout(() => {
         loadAllNotifications();
@@ -198,9 +274,27 @@ export default function HomeScreen() {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Cancel the scheduled notification
-              await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
-              
+              // Check if this is a rolling-window managed notification
+              const isRollingWindow = notification.notificationTrigger && (notification.notificationTrigger as any).type === 'DATE_WINDOW';
+
+              if (isRollingWindow) {
+                // Cancel all rolling-window notification instances
+                const repeatInstances = await getAllActiveRepeatNotificationInstances(notification.notificationId);
+                for (const instance of repeatInstances) {
+                  try {
+                    await Notifications.cancelScheduledNotificationAsync(instance.instanceNotificationId);
+                    console.log('Cancelled rolling-window notification instance on delete:', instance.instanceNotificationId);
+                  } catch (instanceError) {
+                    console.error('Failed to cancel rolling-window notification instance:', instance.instanceNotificationId, ', error:', instanceError);
+                  }
+                }
+                await markAllRepeatNotificationInstancesCancelled(notification.notificationId);
+                console.log('Marked all rolling-window notification instances as cancelled on delete');
+              } else {
+                // Cancel the single scheduled notification
+                await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+              }
+
               // If this is a daily repeating alarm, cancel all daily alarm instances
               if (notification.repeatOption === 'daily' && notification.hasAlarm) {
                 try {
@@ -224,7 +318,7 @@ export default function HomeScreen() {
                   // Continue with deletion even if alarm cancellation fails
                 }
               }
-              
+
               // Delete from database
               await deleteScheduledNotification(notification.notificationId);
               // Reload notifications
@@ -534,15 +628,26 @@ export default function HomeScreen() {
     );
   };
 
-  const renderArchivedNotificationItem = ({ item }: { item: ArchivedNotification }) => {
+  const renderArchivedNotificationItem = ({ item }: { item: PastItem }) => {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
     const measuredHeight = drawerHeights.get(item.id) || 250; // Default fallback height
 
+    // Handle repeat occurrences differently
+    const isRepeat = isRepeatOccurrence(item);
+    const displayTitle = item.title;
+    const displayMessage = item.message;
+    const displayNote = item.note;
+    const displayLink = item.link;
+    const displayDateTime = isRepeat ? item.fireDateTime : item.scheduleDateTime;
+    const displayDateTimeLocal = isRepeat ? new Date(item.fireDateTime).toLocaleString() : item.scheduleDateTimeLocal;
+    const hasAlarm = isRepeat ? false : item.hasAlarm;
+    const repeatOption = isRepeat ? null : item.repeatOption;
+
     // Check if item has any expandable content (repeat option, note, or link)
-    const hasRepeatOption = item.repeatOption && item.repeatOption !== 'none';
-    const hasNote = item.note && item.note.trim().length > 0;
-    const hasLink = item.link && item.link.trim().length > 0;
+    const hasRepeatOption = repeatOption && repeatOption !== 'none';
+    const hasNote = displayNote && displayNote.trim().length > 0;
+    const hasLink = displayLink && displayLink.trim().length > 0;
     const hasExpandableContent = hasRepeatOption || hasNote || hasLink;
 
     const drawerHeight = animValue.interpolate({
@@ -571,16 +676,21 @@ export default function HomeScreen() {
       <>
         <ThemedView style={styles.notificationContent}>
           <ThemedText type="defaultSemiBold" maxFontSizeMultiplier={1.6} style={styles.title}>
-            {item.title}
+            {displayTitle}
           </ThemedText>
           <ThemedText maxFontSizeMultiplier={1.6} style={styles.message} numberOfLines={2}>
-            {item.message}
+            {displayMessage}
           </ThemedText>
           <ThemedView style={styles.dateTimeRow}>
             <ThemedText maxFontSizeMultiplier={1.6} style={styles.message} numberOfLines={1}>
-              {formatDateTimeWithoutSeconds(item.scheduleDateTimeLocal)}
+              {formatDateTimeWithoutSeconds(displayDateTimeLocal)}
             </ThemedText>
-            {item.hasAlarm && (
+            {/* {(isRepeat || hasRepeatOption) && (
+              <ThemedText maxFontSizeMultiplier={1.4} style={[styles.message, { fontStyle: 'italic', marginLeft: 8 }]}>
+                (Repeat)
+              </ThemedText>
+            )} */}
+            {hasAlarm && (
               <IconSymbol
                 name="bell.fill"
                 size={16}
@@ -588,7 +698,7 @@ export default function HomeScreen() {
                 style={styles.icon}
               />
             )}
-            {hasRepeatOption && (
+            {(isRepeat || hasRepeatOption) && (
               <IconSymbol
                 name="repeat"
                 size={16}
@@ -643,7 +753,7 @@ export default function HomeScreen() {
                     Repeat:
                   </ThemedText>
                   <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
-                    {formatRepeatOption(item.repeatOption!, item.scheduleDateTime)}
+                    {formatRepeatOption(repeatOption!, displayDateTime)}
                   </ThemedText>
                 </ThemedView>
               )}
@@ -654,7 +764,7 @@ export default function HomeScreen() {
                     Note:
                   </ThemedText>
                   <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
-                    {item.note}
+                    {displayNote}
                   </ThemedText>
                 </ThemedView>
               )}
@@ -665,7 +775,7 @@ export default function HomeScreen() {
                     Link:
                   </ThemedText>
                   <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue} numberOfLines={1}>
-                    {item.link}
+                    {displayLink}
                   </ThemedText>
                 </ThemedView>
               )}
@@ -750,11 +860,11 @@ export default function HomeScreen() {
         />
       ) : (
         <FlatList
-          data={archivedNotifications}
+          data={pastItems}
           renderItem={renderArchivedNotificationItem}
-          keyExtractor={(item) => item.notificationId}
+          keyExtractor={(item) => isRepeatOccurrence(item) ? `repeat-${item.id}` : item.notificationId}
           contentContainerStyle={
-            archivedNotifications.length === 0
+            pastItems.length === 0
               ? styles.emptyListContent
               : styles.listContent
           }

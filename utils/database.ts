@@ -1,6 +1,7 @@
+import * as Crypto from 'expo-crypto';
 import * as Notifications from 'expo-notifications';
 import * as SQLite from 'expo-sqlite';
-import * as Crypto from 'expo-crypto';
+import { Platform } from 'react-native';
 
 // Open the database
 async function openDatabase() {
@@ -130,6 +131,14 @@ export const initDatabase = async () => {
       // Column might already exist, ignore error
       if (!error.message?.includes('duplicate column')) {
         console.log('Note: originalEventRecurring column may already exist');
+      }
+    }
+    try {
+      await db.execAsync(`ALTER TABLE scheduledNotification ADD COLUMN repeatMethod TEXT DEFAULT NULL;`);
+    } catch (error: any) {
+      // Column might already exist, ignore error
+      if (!error.message?.includes('duplicate column')) {
+        console.log('Note: repeatMethod column may already exist');
       }
     }
 
@@ -289,6 +298,55 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_dailyAlarmInstance_fireDateTime ON dailyAlarmInstance (fireDateTime);
     `);
 
+    // Create repeatNotificationInstance table if it doesn't exist (for tracking scheduled DATE notification instances for rolling-window repeats)
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS repeatNotificationInstance (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parentNotificationId TEXT NOT NULL,
+        instanceNotificationId TEXT NOT NULL,
+        fireDateTime TEXT NOT NULL,
+        isActive INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        cancelledAt TEXT DEFAULT NULL,
+        UNIQUE(parentNotificationId, fireDateTime)
+      );
+    `);
+
+    // Create indexes for repeatNotificationInstance table
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationInstance_parentId_isActive ON repeatNotificationInstance (parentNotificationId, isActive);
+    `);
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationInstance_fireDateTime ON repeatNotificationInstance (fireDateTime);
+    `);
+
+    // Create repeatNotificationOccurrence table if it doesn't exist (for tracking delivered occurrences of repeating notifications)
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS repeatNotificationOccurrence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        parentNotificationId TEXT NOT NULL,
+        fireDateTime TEXT NOT NULL,
+        recordedAt TEXT DEFAULT CURRENT_TIMESTAMP,
+        source TEXT NOT NULL,
+        title TEXT NOT NULL,
+        message TEXT NOT NULL,
+        note TEXT DEFAULT NULL,
+        link TEXT DEFAULT NULL,
+        UNIQUE(parentNotificationId, fireDateTime)
+      );
+    `);
+
+    // Create indexes for repeatNotificationOccurrence table
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationOccurrence_parentId_fireDateTime ON repeatNotificationOccurrence (parentNotificationId, fireDateTime);
+    `);
+
+    await db.execAsync(`
+      CREATE INDEX IF NOT EXISTS idx_repeatNotificationOccurrence_fireDateTime ON repeatNotificationOccurrence (fireDateTime);
+    `);
+
     isInitialized = true;
     console.log('Database initialized successfully');
   } catch (error: any) {
@@ -316,7 +374,8 @@ export const saveScheduledNotificationData = async (
   originalEventStartDate?: string,
   originalEventEndDate?: string,
   originalEventLocation?: string,
-  originalEventRecurring?: string
+  originalEventRecurring?: string,
+  repeatMethod?: 'expo' | 'rollingWindow' | null
 ) => {
   console.log('Saving scheduled notification data:', { notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger });
   try {
@@ -341,11 +400,13 @@ export const saveScheduledNotificationData = async (
     const originalEventEndDateSql = originalEventEndDate ? `'${escapeSql(originalEventEndDate)}'` : 'NULL';
     const originalEventLocationSql = originalEventLocation ? `'${escapeSql(originalEventLocation)}'` : 'NULL';
     const originalEventRecurringSql = originalEventRecurring ? `'${escapeSql(originalEventRecurring)}'` : 'NULL';
+    const repeatMethodValue = repeatMethod || null;
+    const repeatMethodSql = repeatMethodValue ? `'${escapeSql(repeatMethodValue)}'` : 'NULL';
 
     // Use INSERT OR REPLACE to either insert new or update existing notification
     await db.execAsync(
-      `INSERT OR REPLACE INTO scheduledNotification (notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, location, originalEventTitle, originalEventStartDate, originalEventEndDate, originalEventLocation, originalEventRecurring, updatedAt)
-      VALUES ('${escapeSql(notificationId)}', '${escapeSql(title)}', '${escapeSql(message)}', '${escapeSql(note)}', '${escapeSql(link)}', '${scheduleDateTime}', '${escapeSql(scheduleDateTimeLocal)}', ${repeatOptionSql}, ${notificationTriggerSql}, ${hasAlarmValue}, ${calendarIdSql}, ${originalEventIdSql}, ${locationSql}, ${originalEventTitleSql}, ${originalEventStartDateSql}, ${originalEventEndDateSql}, ${originalEventLocationSql}, ${originalEventRecurringSql}, CURRENT_TIMESTAMP);`
+      `INSERT OR REPLACE INTO scheduledNotification (notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, location, originalEventTitle, originalEventStartDate, originalEventEndDate, originalEventLocation, originalEventRecurring, repeatMethod, updatedAt)
+      VALUES ('${escapeSql(notificationId)}', '${escapeSql(title)}', '${escapeSql(message)}', '${escapeSql(note)}', '${escapeSql(link)}', '${scheduleDateTime}', '${escapeSql(scheduleDateTimeLocal)}', ${repeatOptionSql}, ${notificationTriggerSql}, ${hasAlarmValue}, ${calendarIdSql}, ${originalEventIdSql}, ${locationSql}, ${originalEventTitleSql}, ${originalEventStartDateSql}, ${originalEventEndDateSql}, ${originalEventLocationSql}, ${originalEventRecurringSql}, ${repeatMethodSql}, CURRENT_TIMESTAMP);`
     );
     console.log('Notification data saved successfully');
     const result = await getScheduledNotificationData(notificationId);
@@ -361,8 +422,8 @@ export const getScheduledNotificationData = async (notificationId: string) => {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    const result = await db.getFirstAsync<{ notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; repeatOption: string | null; notificationTrigger: string | null; hasAlarm: number; calendarId: string | null; originalEventId: string | null; createdAt: string; updatedAt: string }>(
-      `SELECT notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, createdAt, updatedAt FROM scheduledNotification WHERE notificationId = '${notificationId.replace(/'/g, "''")}';`
+    const result = await db.getFirstAsync<{ notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; repeatOption: string | null; notificationTrigger: string | null; hasAlarm: number; calendarId: string | null; originalEventId: string | null; repeatMethod: string | null; createdAt: string; updatedAt: string }>(
+      `SELECT notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, repeatMethod, createdAt, updatedAt FROM scheduledNotification WHERE notificationId = '${notificationId.replace(/'/g, "''")}';`
     );
     if (!result) return null;
 
@@ -392,8 +453,8 @@ export const getAllScheduledNotificationData = async () => {
     const db = await openDatabase();
     // First ensure table exists
     await initDatabase();
-    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; repeatOption: string | null; notificationTrigger: string | null; hasAlarm: number; calendarId: string | null; originalEventId: string | null; createdAt: string; updatedAt: string }>(
-      `SELECT id, notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, createdAt, updatedAt FROM scheduledNotification ORDER BY scheduleDateTime ASC;`
+    const result = await db.getAllAsync<{ id: number; notificationId: string; title: string; message: string; note: string; link: string; scheduleDateTime: string; scheduleDateTimeLocal: string; repeatOption: string | null; notificationTrigger: string | null; hasAlarm: number; calendarId: string | null; originalEventId: string | null; repeatMethod: string | null; createdAt: string; updatedAt: string }>(
+      `SELECT id, notificationId, title, message, note, link, scheduleDateTime, scheduleDateTimeLocal, repeatOption, notificationTrigger, hasAlarm, calendarId, originalEventId, repeatMethod, createdAt, updatedAt FROM scheduledNotification ORDER BY scheduleDateTime ASC;`
     );
     if (!result) return [];
 
@@ -979,6 +1040,693 @@ export const markAllDailyAlarmInstancesCancelled = async (notificationId: string
   }
 };
 
+// Repeat Notification Instance CRUD operations
+
+// Insert a repeat notification instance
+export const insertRepeatNotificationInstance = async (
+  parentNotificationId: string,
+  instanceNotificationId: string,
+  fireDateTime: string
+): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    await db.execAsync(
+      `INSERT OR IGNORE INTO repeatNotificationInstance (parentNotificationId, instanceNotificationId, fireDateTime, isActive, createdAt, updatedAt)
+       VALUES ('${escapeSql(parentNotificationId)}', '${escapeSql(instanceNotificationId)}', '${fireDateTime}', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
+    );
+  } catch (error: any) {
+    console.error('Failed to insert repeat notification instance:', error);
+    throw new Error(`Failed to insert repeat notification instance: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get active future repeat notification instances for a parent notification
+export const getActiveFutureRepeatNotificationInstances = async (
+  parentNotificationId: string,
+  nowIso: string
+): Promise<Array<{ instanceNotificationId: string; fireDateTime: string }>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    const result = await db.getAllAsync<{ instanceNotificationId: string; fireDateTime: string }>(
+      `SELECT instanceNotificationId, fireDateTime FROM repeatNotificationInstance 
+       WHERE parentNotificationId = '${escapeSql(parentNotificationId)}' 
+       AND isActive = 1 
+       AND fireDateTime > '${nowIso}'
+       ORDER BY fireDateTime ASC;`
+    );
+    return result || [];
+  } catch (error: any) {
+    console.error('Failed to get active future repeat notification instances:', error);
+    return [];
+  }
+};
+
+// Get all active repeat notification instances for a parent notification
+export const getAllActiveRepeatNotificationInstances = async (
+  parentNotificationId: string
+): Promise<Array<{ instanceNotificationId: string; fireDateTime: string }>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    const result = await db.getAllAsync<{ instanceNotificationId: string; fireDateTime: string }>(
+      `SELECT instanceNotificationId, fireDateTime FROM repeatNotificationInstance 
+       WHERE parentNotificationId = '${escapeSql(parentNotificationId)}' 
+       AND isActive = 1
+       ORDER BY fireDateTime ASC;`
+    );
+    return result || [];
+  } catch (error: any) {
+    console.error('Failed to get all active repeat notification instances:', error);
+    return [];
+  }
+};
+
+// Mark a repeat notification instance as cancelled
+export const markRepeatNotificationInstanceCancelled = async (instanceNotificationId: string): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    await db.execAsync(
+      `UPDATE repeatNotificationInstance 
+       SET isActive = 0, cancelledAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP 
+       WHERE instanceNotificationId = '${escapeSql(instanceNotificationId)}';`
+    );
+  } catch (error: any) {
+    console.error('Failed to mark repeat notification instance as cancelled:', error);
+    throw new Error(`Failed to mark repeat notification instance as cancelled: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Mark all repeat notification instances for a parent notification as cancelled
+export const markAllRepeatNotificationInstancesCancelled = async (parentNotificationId: string): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    await db.execAsync(
+      `UPDATE repeatNotificationInstance 
+       SET isActive = 0, cancelledAt = CURRENT_TIMESTAMP, updatedAt = CURRENT_TIMESTAMP 
+       WHERE parentNotificationId = '${escapeSql(parentNotificationId)}' AND isActive = 1;`
+    );
+  } catch (error: any) {
+    console.error('Failed to mark all repeat notification instances as cancelled:', error);
+    throw new Error(`Failed to mark all repeat notification instances as cancelled: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Date generation helpers for rolling-window notifications
+
+// Helper to clamp day-of-month to last valid day of month (for monthly/yearly)
+const clampDayOfMonth = (year: number, month: number, day: number): number => {
+  const lastDay = new Date(year, month + 1, 0).getDate();
+  return Math.min(day, lastDay);
+};
+
+// Generate occurrence dates for rolling-window notifications
+export const generateOccurrenceDates = (
+  startDate: Date,
+  repeatOption: 'daily' | 'weekly' | 'monthly' | 'yearly',
+  count: number,
+  hour: number,
+  minute: number
+): Date[] => {
+  const now = new Date();
+  const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
+  const dates: Date[] = [];
+
+  let currentDate = new Date(startDate);
+  currentDate.setHours(hour, minute, 0, 0);
+
+  // Ensure we start from startDate, but skip if it's in the past
+  if (currentDate <= oneMinuteFromNow) {
+    // Move to next occurrence
+    if (repeatOption === 'daily') {
+      currentDate.setDate(currentDate.getDate() + 1);
+    } else if (repeatOption === 'weekly') {
+      currentDate.setDate(currentDate.getDate() + 7);
+    } else if (repeatOption === 'monthly') {
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      // Clamp day if needed
+      const originalDay = startDate.getDate();
+      const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+      currentDate.setDate(clampedDay);
+    } else if (repeatOption === 'yearly') {
+      currentDate.setFullYear(currentDate.getFullYear() + 1);
+      // Clamp day if needed (e.g., Feb 29 -> Feb 28 in non-leap years)
+      const originalDay = startDate.getDate();
+      const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+      currentDate.setDate(clampedDay);
+    }
+  }
+
+  for (let i = 0; i < count; i++) {
+    const occurrenceDate = new Date(currentDate);
+    occurrenceDate.setHours(hour, minute, 0, 0);
+
+    // Only add if it's at least 1 minute in the future
+    if (occurrenceDate > oneMinuteFromNow) {
+      dates.push(occurrenceDate);
+    }
+
+    // Move to next occurrence
+    if (repeatOption === 'daily') {
+      currentDate.setDate(currentDate.getDate() + 1);
+    } else if (repeatOption === 'weekly') {
+      currentDate.setDate(currentDate.getDate() + 7);
+    } else if (repeatOption === 'monthly') {
+      const originalDay = startDate.getDate();
+      currentDate.setMonth(currentDate.getMonth() + 1);
+      const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+      currentDate.setDate(clampedDay);
+    } else if (repeatOption === 'yearly') {
+      const originalDay = startDate.getDate();
+      currentDate.setFullYear(currentDate.getFullYear() + 1);
+      const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+      currentDate.setDate(clampedDay);
+    }
+  }
+
+  return dates;
+};
+
+// Get window size for a repeat option
+export const getWindowSize = (repeatOption: 'daily' | 'weekly' | 'monthly' | 'yearly'): number => {
+  switch (repeatOption) {
+    case 'daily':
+      return 14;
+    case 'weekly':
+      return 4;
+    case 'monthly':
+      return 4;
+    case 'yearly':
+      return 2;
+    default:
+      return 14;
+  }
+};
+
+// Schedule rolling-window notification instances
+export const scheduleRollingWindowNotifications = async (
+  parentNotificationId: string,
+  startDate: Date,
+  repeatOption: 'daily' | 'weekly' | 'monthly' | 'yearly',
+  notificationContent: Notifications.NotificationContentInput,
+  count?: number
+): Promise<{ scheduled: number; skipped: number }> => {
+  const hour = startDate.getHours();
+  const minute = startDate.getMinutes();
+  const windowSize = count || getWindowSize(repeatOption);
+
+  // Generate occurrence dates
+  const dates = generateOccurrenceDates(startDate, repeatOption, windowSize, hour, minute);
+
+  let scheduled = 0;
+  let skipped = 0;
+
+  // Schedule each DATE notification
+  for (const occurrenceDate of dates) {
+    try {
+      const instanceNotificationId = "thenotifier-instance-" + Crypto.randomUUID();
+
+      // Ensure parentNotificationId is included in notification data for occurrence tracking
+      const notificationDataWithParent = {
+        ...notificationContent.data,
+        notificationId: parentNotificationId,
+      };
+
+      const notificationTrigger: Notifications.NotificationTriggerInput = {
+        type: Notifications.SchedulableTriggerInputTypes.DATE,
+        date: occurrenceDate,
+      };
+
+      if (Platform.OS === 'android') {
+        (notificationTrigger as any).channelId = "thenotifier";
+      }
+
+      await Notifications.scheduleNotificationAsync({
+        identifier: instanceNotificationId,
+        content: {
+          ...notificationContent,
+          data: notificationDataWithParent,
+        },
+        trigger: notificationTrigger,
+      });
+
+      // Persist the instance
+      await insertRepeatNotificationInstance(
+        parentNotificationId,
+        instanceNotificationId,
+        occurrenceDate.toISOString()
+      );
+
+      scheduled++;
+    } catch (error) {
+      console.error(`Failed to schedule rolling-window notification instance for ${occurrenceDate.toISOString()}:`, error);
+      skipped++;
+      // Continue with other dates even if one fails
+    }
+  }
+
+  return { scheduled, skipped };
+};
+
+// Migrate rolling-window repeats to Expo repeats
+export const migrateRollingWindowRepeatsToExpo = async (): Promise<void> => {
+  console.log('[RepeatMigration] Starting migration of rolling-window repeats to Expo repeats');
+
+  try {
+    const scheduledNotifications = await getAllScheduledNotificationData();
+    const now = new Date();
+
+    // Filter eligible notifications
+    const eligibleNotifications = scheduledNotifications.filter(n => {
+      if (!n.repeatOption || n.repeatOption === 'none') return false;
+      if (n.repeatMethod !== 'rollingWindow') return false;
+      if (new Date(n.scheduleDateTime) >= now) return false;
+
+      // Verify it's actually rolling-window managed
+      const trigger = n.notificationTrigger as any;
+      if (trigger?.type === 'DATE_WINDOW') return true;
+
+      // Check if there are active rolling instances
+      // We'll check this per notification during processing
+      return true;
+    });
+
+    console.log(`[RepeatMigration] Found ${eligibleNotifications.length} eligible notifications`);
+
+    let migrated = 0;
+    let skipped = 0;
+
+    for (const notification of eligibleNotifications) {
+      try {
+        console.log(`[RepeatMigration] Processing notification: ${notification.notificationId}`);
+
+        // Load active rolling instances
+        const activeInstances = await getAllActiveRepeatNotificationInstances(notification.notificationId);
+
+        // Skip if no active instances (might have been cleaned up already)
+        if (activeInstances.length === 0) {
+          console.log(`[RepeatMigration] No active instances found for ${notification.notificationId}, skipping`);
+          continue;
+        }
+
+        console.log(`[RepeatMigration] Found ${activeInstances.length} active rolling instances`);
+
+        // Step 2: Capacity guard - cancel latest instance
+        const latestInstance = activeInstances.reduce((latest, current) => {
+          return new Date(current.fireDateTime) > new Date(latest.fireDateTime) ? current : latest;
+        });
+
+        console.log(`[RepeatMigration] Cancelling latest instance: ${latestInstance.instanceNotificationId} (fireDateTime: ${latestInstance.fireDateTime})`);
+
+        try {
+          await Notifications.cancelScheduledNotificationAsync(latestInstance.instanceNotificationId);
+          await markRepeatNotificationInstanceCancelled(latestInstance.instanceNotificationId);
+          console.log(`[RepeatMigration] Successfully cancelled latest instance`);
+        } catch (cancelError: any) {
+          const errorMessage = cancelError instanceof Error ? cancelError.message : String(cancelError);
+          // Treat "not found" as non-fatal
+          if (errorMessage.includes('not found') || errorMessage.includes('NOT_FOUND')) {
+            console.log(`[RepeatMigration] Latest instance not found (may have already fired), marking as cancelled`);
+            await markRepeatNotificationInstanceCancelled(latestInstance.instanceNotificationId);
+          } else {
+            console.error(`[RepeatMigration] Failed to cancel latest instance: ${errorMessage}`);
+            skipped++;
+            continue;
+          }
+        }
+
+        // Step 3: Schedule new Expo repeating notification
+        const startDate = new Date(notification.scheduleDateTime);
+        const hour = startDate.getHours();
+        const minute = startDate.getMinutes();
+        const day = startDate.getDate();
+        const dayOfWeek = startDate.getDay();
+        const month = startDate.getMonth();
+
+        let expoTrigger: Notifications.NotificationTriggerInput;
+        switch (notification.repeatOption) {
+          case 'daily':
+            expoTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.DAILY,
+              hour: hour,
+              minute: minute,
+            };
+            break;
+          case 'weekly':
+            expoTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+              weekday: dayOfWeek,
+              hour: hour,
+              minute: minute,
+            };
+            break;
+          case 'monthly':
+            expoTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.MONTHLY,
+              day: day,
+              hour: hour,
+              minute: minute,
+            };
+            break;
+          case 'yearly':
+            expoTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.YEARLY,
+              month: month,
+              day: day,
+              hour: hour,
+              minute: minute,
+            };
+            break;
+          default:
+            console.error(`[RepeatMigration] Unknown repeatOption: ${notification.repeatOption}`);
+            skipped++;
+            continue;
+        }
+
+        if (Platform.OS === 'android') {
+          (expoTrigger as any).channelId = "thenotifier";
+        }
+
+        // Build notification content
+        const deepLinkUrl = notification.link ? `thenotifier://notification?title=${encodeURIComponent(notification.title)}&message=${encodeURIComponent(notification.message)}&note=${encodeURIComponent(notification.note || '')}&link=${encodeURIComponent(notification.link)}` : `thenotifier://notification?title=${encodeURIComponent(notification.title)}&message=${encodeURIComponent(notification.message)}&note=${encodeURIComponent(notification.note || '')}`;
+
+        const notificationContent: Notifications.NotificationContentInput = {
+          title: notification.title,
+          body: notification.message,
+          data: {
+            title: notification.title,
+            message: notification.message,
+            note: notification.note || '',
+            link: notification.link || '',
+            url: deepLinkUrl
+          },
+          sound: 'thenotifier.wav'
+        };
+
+        if (Platform.OS === 'android') {
+          notificationContent.vibrate = [0, 1000, 500, 1000];
+        }
+        if (Platform.OS === 'ios') {
+          notificationContent.interruptionLevel = 'timeSensitive';
+        }
+
+        console.log(`[RepeatMigration] Scheduling Expo repeating notification with trigger:`, expoTrigger);
+        await Notifications.scheduleNotificationAsync({
+          identifier: notification.notificationId,
+          content: notificationContent,
+          trigger: expoTrigger,
+        });
+        console.log(`[RepeatMigration] Successfully scheduled Expo repeating notification`);
+
+        // Step 4: Handle alarms if necessary
+        let alarmHandlingRequired = false;
+        let alarmHandlingFailed = false;
+
+        if (notification.hasAlarm) {
+          // Check if alarm handling is necessary
+          // For now, we'll always reschedule to ensure consistency
+          // In a more sophisticated implementation, we could compare alarm configs
+          alarmHandlingRequired = true;
+
+          console.log(`[RepeatMigration] Handling alarms for ${notification.notificationId}`);
+
+          try {
+            const { NativeAlarmManager } = await import('rn-native-alarmkit');
+
+            if (notification.repeatOption === 'daily') {
+              // Schedule new daily alarms first (safer order)
+              await scheduleDailyAlarmWindow(
+                notification.notificationId,
+                startDate,
+                { hour, minute },
+                {
+                  title: notification.message,
+                  color: '#8ddaff',
+                  data: {
+                    notificationId: notification.notificationId,
+                  },
+                },
+                14
+              );
+              console.log(`[RepeatMigration] Scheduled new daily alarm window`);
+
+              // Then cancel old daily alarms
+              const dailyInstances = await getAllActiveDailyAlarmInstances(notification.notificationId);
+              for (const instance of dailyInstances) {
+                try {
+                  await NativeAlarmManager.cancelAlarm(instance.alarmId);
+                  await markDailyAlarmInstanceCancelled(instance.alarmId);
+                } catch (alarmCancelError: any) {
+                  const errorMessage = alarmCancelError instanceof Error ? alarmCancelError.message : String(alarmCancelError);
+                  if (!errorMessage.includes('not found') && !errorMessage.includes('ALARM_NOT_FOUND')) {
+                    throw alarmCancelError; // Re-throw if it's a real error
+                  }
+                }
+              }
+              console.log(`[RepeatMigration] Cancelled old daily alarm instances`);
+            } else {
+              // Weekly/monthly/yearly: schedule new alarm first
+              const alarmId = notification.notificationId.substring("thenotifier-".length);
+              let alarmSchedule: any;
+
+              if (notification.repeatOption === 'weekly') {
+                alarmSchedule = {
+                  id: alarmId,
+                  type: 'recurring',
+                  repeatInterval: 'weekly',
+                  startDate: startDate,
+                  time: { hour, minute },
+                  daysOfWeek: [dayOfWeek],
+                };
+              } else if (notification.repeatOption === 'monthly') {
+                alarmSchedule = {
+                  id: alarmId,
+                  type: 'recurring',
+                  repeatInterval: 'monthly',
+                  startDate: startDate,
+                  time: { hour, minute },
+                  dayOfMonth: day,
+                };
+              } else if (notification.repeatOption === 'yearly') {
+                alarmSchedule = {
+                  id: alarmId,
+                  type: 'recurring',
+                  repeatInterval: 'yearly',
+                  startDate: startDate,
+                  time: { hour, minute },
+                  monthOfYear: month, // Expo uses 0-11 (January = 0)
+                  dayOfMonth: day,
+                };
+              }
+
+              await NativeAlarmManager.scheduleAlarm(
+                alarmSchedule,
+                {
+                  title: notification.message,
+                  color: '#8ddaff',
+                  data: {
+                    notificationId: notification.notificationId,
+                  },
+                }
+              );
+              console.log(`[RepeatMigration] Scheduled new ${notification.repeatOption} alarm`);
+
+              // Then cancel old alarm
+              try {
+                await NativeAlarmManager.cancelAlarm(alarmId);
+                console.log(`[RepeatMigration] Cancelled old alarm`);
+              } catch (alarmCancelError: any) {
+                const errorMessage = alarmCancelError instanceof Error ? alarmCancelError.message : String(alarmCancelError);
+                if (!errorMessage.includes('not found') && !errorMessage.includes('ALARM_NOT_FOUND')) {
+                  throw alarmCancelError; // Re-throw if it's a real error
+                }
+              }
+            }
+          } catch (alarmError) {
+            console.error(`[RepeatMigration] Alarm handling failed for ${notification.notificationId}:`, alarmError);
+            alarmHandlingFailed = true;
+
+            // Rollback: cancel newly scheduled Expo notification
+            try {
+              await Notifications.cancelScheduledNotificationAsync(notification.notificationId);
+              console.log(`[RepeatMigration] Rolled back Expo notification due to alarm failure`);
+            } catch (rollbackError) {
+              console.error(`[RepeatMigration] Failed to rollback Expo notification:`, rollbackError);
+            }
+
+            skipped++;
+            continue;
+          }
+        }
+
+        // Step 5: Update DB
+        await saveScheduledNotificationData(
+          notification.notificationId,
+          notification.title,
+          notification.message,
+          notification.note || '',
+          notification.link || '',
+          notification.scheduleDateTime,
+          notification.scheduleDateTimeLocal,
+          notification.repeatOption || undefined,
+          expoTrigger,
+          notification.hasAlarm,
+          notification.calendarId || undefined,
+          notification.originalEventId || undefined,
+          undefined, // location
+          undefined, // originalEventTitle
+          undefined, // originalEventStartDate
+          undefined, // originalEventEndDate
+          undefined, // originalEventLocation
+          undefined, // originalEventRecurring
+          'expo'
+        );
+        console.log(`[RepeatMigration] Updated DB: set repeatMethod='expo'`);
+
+        // Step 6: Cleanup old rolling-window artifacts
+        const remainingInstances = activeInstances.filter(inst => inst.instanceNotificationId !== latestInstance.instanceNotificationId);
+        console.log(`[RepeatMigration] Cleaning up ${remainingInstances.length} remaining rolling instances`);
+
+        for (const instance of remainingInstances) {
+          try {
+            await Notifications.cancelScheduledNotificationAsync(instance.instanceNotificationId);
+            await markRepeatNotificationInstanceCancelled(instance.instanceNotificationId);
+          } catch (cleanupError: any) {
+            const errorMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+            // Treat "not found" as non-fatal
+            if (errorMessage.includes('not found') || errorMessage.includes('NOT_FOUND')) {
+              await markRepeatNotificationInstanceCancelled(instance.instanceNotificationId);
+            } else {
+              console.error(`[RepeatMigration] Failed to cleanup instance ${instance.instanceNotificationId}: ${errorMessage}`);
+            }
+          }
+        }
+
+        migrated++;
+        console.log(`[RepeatMigration] Successfully migrated ${notification.notificationId}`);
+
+      } catch (error) {
+        console.error(`[RepeatMigration] Failed to migrate ${notification.notificationId}:`, error);
+        skipped++;
+      }
+    }
+
+    console.log(`[RepeatMigration] Migration complete: ${migrated} migrated, ${skipped} skipped`);
+  } catch (error) {
+    console.error('[RepeatMigration] Migration failed:', error);
+  }
+};
+
+// Ensure rolling-window notification instances for all rolling-window managed notifications (replenisher)
+export const ensureRollingWindowNotificationInstances = async (): Promise<void> => {
+  const scheduledNotifications = await getAllScheduledNotificationData();
+
+  const now = new Date();
+  const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
+
+  // Filter for rolling-window managed notifications
+  const rollingWindowNotifications = scheduledNotifications.filter(
+    n => {
+      if (!n.repeatOption || n.repeatOption === 'none') return false;
+      if (!n.notificationTrigger) return false;
+      const trigger = n.notificationTrigger as any;
+      return trigger.type === 'DATE_WINDOW';
+    }
+  );
+
+  for (const notification of rollingWindowNotifications) {
+    try {
+      const repeatOption = notification.repeatOption as 'daily' | 'weekly' | 'monthly' | 'yearly';
+      if (!repeatOption) continue;
+
+      // Get current active future instances
+      const activeInstances = await getActiveFutureRepeatNotificationInstances(
+        notification.notificationId,
+        oneMinuteFromNow.toISOString()
+      );
+
+      const windowSize = getWindowSize(repeatOption);
+
+      // If we have fewer than required, schedule more
+      if (activeInstances.length < windowSize) {
+        const needed = windowSize - activeInstances.length;
+
+        // Parse the notification trigger to get time
+        let hour = 8;
+        let minute = 0;
+        const startDate = new Date(notification.scheduleDateTime);
+        hour = startDate.getHours();
+        minute = startDate.getMinutes();
+
+        // Find the latest scheduled date or use scheduleDateTime
+        let baseDate = new Date(notification.scheduleDateTime);
+        if (activeInstances.length > 0) {
+          // Use the latest scheduled instance date
+          const latestInstance = activeInstances[activeInstances.length - 1];
+          baseDate = new Date(latestInstance.fireDateTime);
+          // Move to next occurrence based on repeat option
+          if (repeatOption === 'daily') {
+            baseDate.setDate(baseDate.getDate() + 1);
+          } else if (repeatOption === 'weekly') {
+            baseDate.setDate(baseDate.getDate() + 7);
+          } else if (repeatOption === 'monthly') {
+            const originalDay = new Date(notification.scheduleDateTime).getDate();
+            baseDate.setMonth(baseDate.getMonth() + 1);
+            const clampedDay = clampDayOfMonth(baseDate.getFullYear(), baseDate.getMonth(), originalDay);
+            baseDate.setDate(clampedDay);
+          } else if (repeatOption === 'yearly') {
+            const originalDay = new Date(notification.scheduleDateTime).getDate();
+            baseDate.setFullYear(baseDate.getFullYear() + 1);
+            const clampedDay = clampDayOfMonth(baseDate.getFullYear(), baseDate.getMonth(), originalDay);
+            baseDate.setDate(clampedDay);
+          }
+        }
+
+        // Build notification content from stored notification data
+        const notificationContent: Notifications.NotificationContentInput = {
+          title: notification.title,
+          body: notification.message,
+          data: {
+            title: notification.title,
+            message: notification.message,
+            note: notification.note || '',
+            link: notification.link || '',
+            url: notification.link ? `thenotifier://notification?title=${encodeURIComponent(notification.title)}&message=${encodeURIComponent(notification.message)}&note=${encodeURIComponent(notification.note || '')}&link=${encodeURIComponent(notification.link || '')}` : `thenotifier://notification?title=${encodeURIComponent(notification.title)}&message=${encodeURIComponent(notification.message)}&note=${encodeURIComponent(notification.note || '')}`
+          },
+          sound: 'thenotifier.wav'
+        };
+
+        if (Platform.OS === 'android') {
+          notificationContent.vibrate = [0, 1000, 500, 1000];
+        }
+        if (Platform.OS === 'ios') {
+          notificationContent.interruptionLevel = 'timeSensitive';
+        }
+
+        // Schedule the needed notifications
+        await scheduleRollingWindowNotifications(
+          notification.notificationId,
+          baseDate,
+          repeatOption,
+          notificationContent,
+          needed
+        );
+      }
+    } catch (error) {
+      console.error(`Failed to ensure rolling-window notification instances for ${notification.notificationId}:`, error);
+      // Continue with other notifications
+    }
+  }
+};
+
 // Higher-level orchestrator: Schedule daily alarm window (14 fixed alarms)
 // This should be called from scheduleForm.tsx when scheduling a daily alarm
 export const scheduleDailyAlarmWindow = async (
@@ -989,34 +1737,34 @@ export const scheduleDailyAlarmWindow = async (
   count: number = 14
 ): Promise<void> => {
   const { NativeAlarmManager } = await import('rn-native-alarmkit');
-  
+
   const now = new Date();
   const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
-  
+
   // Calculate dates for the next 14 occurrences
   const dates: Date[] = [];
   let currentDate = new Date(baseDate);
-  
+
   // Ensure we start from baseDate, but skip if it's in the past
   if (currentDate <= oneMinuteFromNow) {
     // Start from tomorrow if baseDate has passed
     currentDate = new Date(baseDate);
     currentDate.setDate(currentDate.getDate() + 1);
   }
-  
+
   for (let i = 0; i < count; i++) {
     const alarmDate = new Date(currentDate);
     alarmDate.setHours(time.hour, time.minute, 0, 0);
-    
+
     // Only schedule if it's at least 1 minute in the future
     if (alarmDate > oneMinuteFromNow) {
       dates.push(alarmDate);
     }
-    
+
     // Move to next day
     currentDate.setDate(currentDate.getDate() + 1);
   }
-  
+
   // Schedule each alarm
   for (const alarmDate of dates) {
     try {
@@ -1030,7 +1778,7 @@ export const scheduleDailyAlarmWindow = async (
           minute: time.minute,
         },
       };
-      
+
       const alarmResult = await NativeAlarmManager.scheduleAlarm(
         alarmSchedule,
         {
@@ -1043,7 +1791,7 @@ export const scheduleDailyAlarmWindow = async (
           actions: alarmConfig.actions,
         }
       );
-      
+
       // Persist the alarm instance with platformAlarmId
       await insertDailyAlarmInstance(
         notificationId,
@@ -1060,16 +1808,16 @@ export const scheduleDailyAlarmWindow = async (
 // Ensure daily alarm window for all daily notifications (replenisher)
 export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void> => {
   const scheduledNotifications = await getAllScheduledNotificationData();
-  
+
   const now = new Date();
   const nowIso = now.toISOString();
   const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
-  
+
   // Filter for daily notifications with alarms enabled
   const dailyNotifications = scheduledNotifications.filter(
     n => n.repeatOption === 'daily' && n.hasAlarm
   );
-  
+
   for (const notification of dailyNotifications) {
     try {
       // Get current active future instances
@@ -1077,11 +1825,11 @@ export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void>
         notification.notificationId,
         oneMinuteFromNow.toISOString()
       );
-      
+
       // If we have fewer than 14, schedule more
       if (activeInstances.length < 14) {
         const needed = 14 - activeInstances.length;
-        
+
         // Parse the notification trigger to get time
         let hour = 8;
         let minute = 0;
@@ -1090,7 +1838,7 @@ export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void>
           if (trigger.hour !== undefined) hour = trigger.hour;
           if (trigger.minute !== undefined) minute = trigger.minute;
         }
-        
+
         // Find the latest scheduled date or use scheduleDateTime
         let baseDate = new Date(notification.scheduleDateTime);
         if (activeInstances.length > 0) {
@@ -1099,7 +1847,7 @@ export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void>
           baseDate = new Date(latestInstance.fireDateTime);
           baseDate.setDate(baseDate.getDate() + 1); // Start from next day
         }
-        
+
         // Schedule the needed alarms with basic config (message will come from notification)
         await scheduleDailyAlarmWindow(
           notification.notificationId,
@@ -1119,6 +1867,204 @@ export const ensureDailyAlarmWindowForAllNotifications = async (): Promise<void>
       console.error(`Failed to ensure daily alarm window for ${notification.notificationId}:`, error);
       // Continue with other notifications
     }
+  }
+};
+
+// Repeat Notification Occurrence CRUD operations
+
+// Insert a repeat notification occurrence
+export const insertRepeatOccurrence = async (
+  parentNotificationId: string,
+  fireDateTime: string,
+  source: 'tap' | 'foreground' | 'catchup',
+  snapshot: { title: string; message: string; note?: string | null; link?: string | null }
+): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    const titleSql = `'${escapeSql(snapshot.title)}'`;
+    const messageSql = `'${escapeSql(snapshot.message)}'`;
+    const noteSql = snapshot.note ? `'${escapeSql(snapshot.note)}'` : 'NULL';
+    const linkSql = snapshot.link ? `'${escapeSql(snapshot.link)}'` : 'NULL';
+    const sourceSql = `'${escapeSql(source)}'`;
+
+    // Use INSERT OR IGNORE to prevent duplicates (idempotent)
+    await db.execAsync(`
+      INSERT OR IGNORE INTO repeatNotificationOccurrence 
+      (parentNotificationId, fireDateTime, source, title, message, note, link, recordedAt)
+      VALUES 
+      ('${escapeSql(parentNotificationId)}', '${fireDateTime}', ${sourceSql}, ${titleSql}, ${messageSql}, ${noteSql}, ${linkSql}, CURRENT_TIMESTAMP);
+    `);
+  } catch (error: any) {
+    console.error('Failed to insert repeat occurrence:', error);
+    throw new Error(`Failed to insert repeat occurrence: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get latest repeat occurrence fire date for a parent notification
+export const getLatestRepeatOccurrenceFireDate = async (parentNotificationId: string): Promise<string | null> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{ maxFireDateTime: string | null }>(
+      `SELECT MAX(fireDateTime) as maxFireDateTime FROM repeatNotificationOccurrence WHERE parentNotificationId = '${parentNotificationId.replace(/'/g, "''")}';`
+    );
+    return result?.maxFireDateTime || null;
+  } catch (error: any) {
+    console.error('Failed to get latest repeat occurrence fire date:', error);
+    return null;
+  }
+};
+
+// Get repeat occurrences (for Past tab)
+export const getRepeatOccurrences = async (limit?: number, sinceIso?: string): Promise<Array<{
+  id: number;
+  parentNotificationId: string;
+  fireDateTime: string;
+  recordedAt: string;
+  source: string;
+  title: string;
+  message: string;
+  note: string | null;
+  link: string | null;
+}>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    let query = `SELECT id, parentNotificationId, fireDateTime, recordedAt, source, title, message, note, link 
+                 FROM repeatNotificationOccurrence`;
+
+    if (sinceIso) {
+      query += ` WHERE fireDateTime >= '${sinceIso.replace(/'/g, "''")}'`;
+    }
+
+    query += ` ORDER BY fireDateTime DESC`;
+
+    if (limit) {
+      query += ` LIMIT ${limit}`;
+    }
+
+    const result = await db.getAllAsync<{
+      id: number;
+      parentNotificationId: string;
+      fireDateTime: string;
+      recordedAt: string;
+      source: string;
+      title: string;
+      message: string;
+      note: string | null;
+      link: string | null;
+    }>(query);
+
+    return result || [];
+  } catch (error: any) {
+    console.error('Failed to get repeat occurrences:', error);
+    return [];
+  }
+};
+
+// Catch up repeat occurrences (for notifications that fired while app was inactive)
+export const catchUpRepeatOccurrences = async (): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    const scheduledNotifications = await getAllScheduledNotificationData();
+    const now = new Date();
+    const nowIso = now.toISOString();
+
+    // Filter for repeating notifications
+    const repeatingNotifications = scheduledNotifications.filter(
+      n => n.repeatOption && n.repeatOption !== 'none' && ['daily', 'weekly', 'monthly', 'yearly'].includes(n.repeatOption)
+    );
+
+    console.log(`[CatchUp] Found ${repeatingNotifications.length} repeating notifications to check`);
+
+    for (const notification of repeatingNotifications) {
+      try {
+        // Get latest recorded occurrence, or use scheduleDateTime as starting point
+        const lastFireIso = await getLatestRepeatOccurrenceFireDate(notification.notificationId);
+        const startDate = lastFireIso ? new Date(lastFireIso) : new Date(notification.scheduleDateTime);
+
+        // Skip if startDate is in the future
+        if (startDate >= now) {
+          continue;
+        }
+
+        // Compute expected occurrences between startDate (exclusive) and now (inclusive)
+        const occurrences: Date[] = [];
+        let currentDate = new Date(startDate);
+        const maxOccurrences = 200; // Cap to avoid huge loops
+
+        // Get snapshot data from parent notification
+        const snapshot = {
+          title: notification.title,
+          message: notification.message,
+          note: notification.note || null,
+          link: notification.link || null,
+        };
+
+        // Determine increment based on repeatOption
+        while (currentDate < now && occurrences.length < maxOccurrences) {
+          // Increment to next occurrence
+          switch (notification.repeatOption) {
+            case 'daily':
+              currentDate.setDate(currentDate.getDate() + 1);
+              break;
+            case 'weekly':
+              currentDate.setDate(currentDate.getDate() + 7);
+              break;
+            case 'monthly': {
+              const originalDay = new Date(notification.scheduleDateTime).getDate();
+              currentDate.setMonth(currentDate.getMonth() + 1);
+              const clampedDay = clampDayOfMonth(currentDate.getFullYear(), currentDate.getMonth(), originalDay);
+              currentDate.setDate(clampedDay);
+              break;
+            }
+            case 'yearly': {
+              const originalDay = new Date(notification.scheduleDateTime).getDate();
+              const originalMonth = new Date(notification.scheduleDateTime).getMonth();
+              currentDate.setFullYear(currentDate.getFullYear() + 1);
+              const clampedDay = clampDayOfMonth(currentDate.getFullYear(), originalMonth, originalDay);
+              currentDate.setDate(clampedDay);
+              currentDate.setMonth(originalMonth);
+              break;
+            }
+          }
+
+          // Only add if still in the past
+          if (currentDate <= now) {
+            occurrences.push(new Date(currentDate));
+          } else {
+            break;
+          }
+        }
+
+        // Insert occurrences with source 'catchup'
+        for (const occurrenceDate of occurrences) {
+          await insertRepeatOccurrence(
+            notification.notificationId,
+            occurrenceDate.toISOString(),
+            'catchup',
+            snapshot
+          );
+        }
+
+        if (occurrences.length > 0) {
+          console.log(`[CatchUp] Inserted ${occurrences.length} catch-up occurrences for ${notification.notificationId}`);
+        }
+      } catch (error) {
+        console.error(`[CatchUp] Failed to catch up occurrences for ${notification.notificationId}:`, error);
+        // Continue with other notifications
+      }
+    }
+
+    console.log('[CatchUp] Catch-up complete');
+  } catch (error) {
+    console.error('[CatchUp] Catch-up failed:', error);
   }
 };
 
