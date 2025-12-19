@@ -1,5 +1,5 @@
 diff --git a/node_modules/rn-native-alarmkit/ios/AlarmKitManager.swift b/node_modules/rn-native-alarmkit/ios/AlarmKitManager.swift
-index 8e28eba..bf6451e 100644
+index 8e28eba..d4a79e3 100644
 --- a/node_modules/rn-native-alarmkit/ios/AlarmKitManager.swift
 +++ b/node_modules/rn-native-alarmkit/ios/AlarmKitManager.swift
 @@ -1,6 +1,44 @@
@@ -308,7 +308,7 @@ index 8e28eba..bf6451e 100644
          var calendar = Calendar.current
          calendar.timeZone = TimeZone.current
  
-@@ -224,37 +414,385 @@ class AlarmKitManager {
+@@ -224,37 +414,377 @@ class AlarmKitManager {
          components.minute = minute
          components.second = 0
  
@@ -623,11 +623,6 @@ index 8e28eba..bf6451e 100644
 +        }
  
 -        // Build stop button
--        let stopButton = AlarmButton(
--            text: "Done",
--            textColor: hexToColor(colorHex),
--            systemImageName: "checkmark.circle.fill"
--        )
 +        // NOTE (iOS 26.1+): AlarmKit's `stopButton` is deprecated and "will no longer be used".
 +        // The system provides its own dismiss control (the X you’re seeing).
 +        //
@@ -652,36 +647,29 @@ index 8e28eba..bf6451e 100644
 +            // For snooze, the correct behavior is countdown.
 +            secondaryBehavior = .countdown
 +        }
- 
++
++        // Build stop button (required parameter)
++        let stopButtonText = (dismissAction?["title"] as? String) ?? "Done"
++        let stopButtonIcon = (dismissAction?["icon"] as? String) ?? "checkmark.circle.fill"
+         let stopButton = AlarmButton(
+-            text: "Done",
+-            textColor: hexToColor(colorHex),
+-            systemImageName: "checkmark.circle.fill"
++            text: LocalizedStringResource(stringLiteral: stopButtonText),
++            textColor: buttonTextColor,
++            systemImageName: stopButtonIcon
+         )
+         
 -        // Build alert presentation
--        let alert = AlarmPresentation.Alert(
++        // Build alert presentation (stopButton is required)
+         let alert = AlarmPresentation.Alert(
 -            title: LocalizedStringResource(stringLiteral: title),
 -            stopButton: stopButton
--        )
-+        let alert: AlarmPresentation.Alert
-+        if #available(iOS 26.1, *) {
-+            // New initializer (no stop button)
-+            alert = AlarmPresentation.Alert(
-+                title: titleResource,
-+                secondaryButton: secondaryButton,
-+                secondaryButtonBehavior: secondaryBehavior
-+            )
-+        } else {
-+            // iOS 26.0 fallback: stopButton initializer still exists (deprecated in 26.1)
-+            let stopButtonText = (dismissAction?["title"] as? String) ?? "Done"
-+            let stopButtonIcon = (dismissAction?["icon"] as? String) ?? "checkmark.circle.fill"
-+            let stopButton = AlarmButton(
-+                text: LocalizedStringResource(stringLiteral: stopButtonText),
-+                textColor: buttonTextColor,
-+                systemImageName: stopButtonIcon
-+            )
-+            alert = AlarmPresentation.Alert(
-+                title: titleResource,
-+                stopButton: stopButton,
-+                secondaryButton: secondaryButton,
-+                secondaryButtonBehavior: secondaryBehavior
-+            )
-+        }
++            title: titleResource,
++            stopButton: stopButton,
++            secondaryButton: secondaryButton,
++            secondaryButtonBehavior: secondaryBehavior
+         )
  
 -        let presentation = AlarmPresentation(alert: alert)
 -        let tintColor = hexToColor(colorHex)
@@ -712,7 +700,7 @@ index 8e28eba..bf6451e 100644
  
          let attributes = AlarmAttributes<BasicAlarmMetadata>(
              presentation: presentation,
-@@ -264,6 +802,26 @@ class AlarmKitManager {
+@@ -264,6 +794,26 @@ class AlarmKitManager {
          return attributes
      }
  
@@ -739,7 +727,7 @@ index 8e28eba..bf6451e 100644
      private func hexToColor(_ hex: String) -> Color {
          var hexSanitized = hex.trimmingCharacters(in: .whitespacesAndNewlines)
          hexSanitized = hexSanitized.replacingOccurrences(of: "#", with: "")
-@@ -288,9 +846,12 @@ class AlarmKitManager {
+@@ -288,9 +838,12 @@ class AlarmKitManager {
                         let schedule = metadata["schedule"] as? NSDictionary,
                         let config = metadata["config"] as? NSDictionary {
  
@@ -753,7 +741,7 @@ index 8e28eba..bf6451e 100644
                              "config": config,
                              "nextFireDate": ISO8601DateFormatter().string(from: Date()),
                              "capability": "native_alarms",
-@@ -298,6 +859,30 @@ class AlarmKitManager {
+@@ -298,6 +851,30 @@ class AlarmKitManager {
                          ]
  
                          delegate?.alarmDidFire(alarm: alarmData)
@@ -785,7 +773,7 @@ index 8e28eba..bf6451e 100644
                  }
              }
 diff --git a/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift b/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
-index cc2fd9b..8e290ed 100644
+index cc2fd9b..abac421 100644
 --- a/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
 +++ b/node_modules/rn-native-alarmkit/ios/NotificationFallback.swift
 @@ -6,9 +6,12 @@ class NotificationFallback: NSObject {
@@ -840,114 +828,7 @@ index cc2fd9b..8e290ed 100644
  
          let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: false)
          let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
-@@ -194,10 +224,29 @@ class NotificationFallback: NSObject {
-         let time = schedule["time"] as? NSDictionary
-         let hour = time?["hour"] as? Int ?? 8
-         let minute = time?["minute"] as? Int ?? 0
--        let daysOfWeek = schedule["daysOfWeek"] as? [Int] ?? []
-+        let repeatInterval = schedule["repeatInterval"] as? String
-+        
-+        // Determine day/month from startDate if provided, otherwise use current date
-+        var calendar = Calendar.current
-+        var dayOfMonth: Int?
-+        var monthOfYear: Int?
- 
--        if daysOfWeek.isEmpty {
--            // Daily alarm
-+        if let startDateTimestamp = schedule["startDate"] as? Double {
-+            let startDate = Date(timeIntervalSince1970: startDateTimestamp / 1000.0)
-+            dayOfMonth = calendar.component(.day, from: startDate)
-+            monthOfYear = calendar.component(.month, from: startDate)
-+        }
-+        
-+        // Override with explicit values if provided
-+        if let explicitDay = schedule["dayOfMonth"] as? Int {
-+            dayOfMonth = explicitDay
-+        }
-+        if let explicitMonth = schedule["monthOfYear"] as? Int {
-+            monthOfYear = explicitMonth
-+        }
-+
-+        switch repeatInterval {
-+        case "daily":
-             var dateComponents = DateComponents()
-             dateComponents.hour = hour
-             dateComponents.minute = minute
-@@ -206,21 +255,65 @@ class NotificationFallback: NSObject {
-             let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
- 
-             try await notificationCenter.add(request)
--        } else {
--            // Specific days of week - need to create multiple notification requests
--            for dayOfWeek in daysOfWeek {
--                let notificationId = "\(alarmId)-day\(dayOfWeek)"
- 
-+        case "weekly":
-+            let daysOfWeek = schedule["daysOfWeek"] as? [Int] ?? []
-+            if daysOfWeek.isEmpty {
-+                // Fallback to daily if no days specified
-                 var dateComponents = DateComponents()
-                 dateComponents.hour = hour
-                 dateComponents.minute = minute
--                dateComponents.weekday = dayOfWeek + 1 // iOS weekday is 1-7, not 0-6
--
-                 let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
--                let request = UNNotificationRequest(identifier: notificationId, content: content, trigger: trigger)
--
-+                let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
-                 try await notificationCenter.add(request)
-+            } else {
-+                // Specific days of week - need to create multiple notification requests
-+                for dayOfWeek in daysOfWeek {
-+                    let notificationId = "\(alarmId)-day\(dayOfWeek)"
-+
-+                    var dateComponents = DateComponents()
-+                    dateComponents.hour = hour
-+                    dateComponents.minute = minute
-+                    dateComponents.weekday = dayOfWeek + 1 // iOS weekday is 1-7, not 0-6
-+
-+                    let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-+                    let request = UNNotificationRequest(identifier: notificationId, content: content, trigger: trigger)
-+
-+                    try await notificationCenter.add(request)
-+                }
-             }
-+
-+        case "monthly":
-+            var dateComponents = DateComponents()
-+            dateComponents.hour = hour
-+            dateComponents.minute = minute
-+            dateComponents.day = dayOfMonth ?? calendar.component(.day, from: Date())
-+
-+            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-+            let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
-+
-+            try await notificationCenter.add(request)
-+
-+        case "yearly":
-+            var dateComponents = DateComponents()
-+            dateComponents.hour = hour
-+            dateComponents.minute = minute
-+            dateComponents.month = monthOfYear ?? calendar.component(.month, from: Date())
-+            dateComponents.day = dayOfMonth ?? calendar.component(.day, from: Date())
-+
-+            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-+            let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
-+
-+            try await notificationCenter.add(request)
-+
-+        default:
-+            // Fallback to daily if repeatInterval not specified
-+            var dateComponents = DateComponents()
-+            dateComponents.hour = hour
-+            dateComponents.minute = minute
-+            let trigger = UNCalendarNotificationTrigger(dateMatching: dateComponents, repeats: true)
-+            let request = UNNotificationRequest(identifier: alarmId, content: content, trigger: trigger)
-+            try await notificationCenter.add(request)
-         }
-     }
- 
-@@ -366,7 +459,15 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+@@ -366,7 +396,15 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
          willPresent notification: UNNotification,
          withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
      ) {
@@ -964,7 +845,7 @@ index cc2fd9b..8e290ed 100644
          completionHandler([.banner, .sound, .badge])
      }
  
-@@ -378,11 +479,16 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+@@ -378,11 +416,16 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
          let userInfo = response.notification.request.content.userInfo
  
          guard let alarmId = userInfo["alarmId"] as? String else {
@@ -983,7 +864,7 @@ index cc2fd9b..8e290ed 100644
          let actionId = response.actionIdentifier
  
          if actionId == UNNotificationDefaultActionIdentifier {
-@@ -393,7 +499,13 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
+@@ -393,7 +436,13 @@ extension NotificationFallback: UNUserNotificationCenterDelegate {
              notifyAlarmFired(alarmId: alarmId, actionId: actionId)
          }
  
@@ -998,191 +879,3 @@ index cc2fd9b..8e290ed 100644
      }
  
      private func notifyAlarmFired(alarmId: String, actionId: String?) {
-diff --git a/node_modules/rn-native-alarmkit/src/NativeAlarmModule.ts b/node_modules/rn-native-alarmkit/src/NativeAlarmModule.ts
-index 639e82b..71231fb 100644
---- a/node_modules/rn-native-alarmkit/src/NativeAlarmModule.ts
-+++ b/node_modules/rn-native-alarmkit/src/NativeAlarmModule.ts
-@@ -3,14 +3,14 @@
-  * Low-level interface to native iOS and Android implementations
-  */
- 
--import { NativeModules, NativeEventEmitter, Platform } from 'react-native';
-+import { NativeEventEmitter, NativeModules, Platform } from 'react-native';
- import type {
--  AlarmSchedule,
--  AlarmConfig,
--  ScheduledAlarm,
-   AlarmCapabilityCheck,
-+  AlarmConfig,
-   AlarmFiredEvent,
-+  AlarmSchedule,
-   PermissionChangedEvent,
-+  ScheduledAlarm,
- } from './types';
- import { AlarmError, AlarmErrorCode } from './types';
- 
-@@ -65,16 +65,16 @@ interface NativeAlarmsSpec {
- const NativeAlarmsModule = NativeModules.RNNativeAlarms
-   ? (NativeModules.RNNativeAlarms as NativeAlarmsSpec)
-   : new Proxy(
--      {},
--      {
--        get() {
--          throw new AlarmError(
--            AlarmErrorCode.MODULE_NOT_LINKED,
--            LINKING_ERROR
--          );
--        },
--      }
--    ) as NativeAlarmsSpec;
-+    {},
-+    {
-+      get() {
-+        throw new AlarmError(
-+          AlarmErrorCode.MODULE_NOT_LINKED,
-+          LINKING_ERROR
-+        );
-+      },
-+    }
-+  ) as NativeAlarmsSpec;
- 
- /**
-  * Event emitter for native events
-@@ -91,6 +91,27 @@ const EVENTS = NativeAlarmsModule.getConstants?.() || {
-   PERMISSION_CHANGED_EVENT: 'RNNativeAlarms_PermissionChanged',
- };
- 
-+/**
-+ * Normalize Date objects in schedule to milliseconds (numbers) for native bridge
-+ * React Native bridge may serialize Date objects inconsistently, so we normalize them
-+ */
-+function normalizeScheduleForNative(schedule: AlarmSchedule): any {
-+  const normalized: any = { ...schedule };
-+
-+  // Convert Date objects to milliseconds (numbers)
-+  if (schedule.date instanceof Date) {
-+    normalized.date = schedule.date.getTime();
-+  }
-+  if (schedule.startDate instanceof Date) {
-+    normalized.startDate = schedule.startDate.getTime();
-+  }
-+  if (schedule.startTime instanceof Date) {
-+    normalized.startTime = schedule.startTime.getTime();
-+  }
-+
-+  return normalized;
-+}
-+
- /**
-  * Wrapped native module with error handling and type safety
-  */
-@@ -133,7 +154,9 @@ export const NativeAlarmModule = {
-     config: AlarmConfig
-   ): Promise<ScheduledAlarm> {
-     try {
--      const alarm = await NativeAlarmsModule.scheduleAlarm(schedule, config);
-+      // Normalize Date objects to milliseconds before passing to native
-+      const normalizedSchedule = normalizeScheduleForNative(schedule);
-+      const alarm = await NativeAlarmsModule.scheduleAlarm(normalizedSchedule, config);
- 
-       // Convert date strings to Date objects
-       return {
-@@ -165,7 +188,9 @@ export const NativeAlarmModule = {
-     config: AlarmConfig
-   ): Promise<ScheduledAlarm> {
-     try {
--      const alarm = await NativeAlarmsModule.updateAlarm(id, schedule, config);
-+      // Normalize Date objects to milliseconds before passing to native
-+      const normalizedSchedule = normalizeScheduleForNative(schedule);
-+      const alarm = await NativeAlarmsModule.updateAlarm(id, normalizedSchedule, config);
- 
-       return {
-         ...alarm,
-diff --git a/node_modules/rn-native-alarmkit/src/types.ts b/node_modules/rn-native-alarmkit/src/types.ts
-index c7b428a..da34ed3 100644
---- a/node_modules/rn-native-alarmkit/src/types.ts
-+++ b/node_modules/rn-native-alarmkit/src/types.ts
-@@ -73,6 +73,11 @@ export interface AlarmCapabilityCheck {
-  */
- export type AlarmScheduleType = 'fixed' | 'recurring' | 'interval';
- 
-+/**
-+ * Repeat interval for recurring alarms
-+ */
-+export type AlarmRepeatInterval = 'daily' | 'weekly' | 'monthly' | 'yearly';
-+
- /**
-  * Day of week (Sunday = 0, Saturday = 6)
-  */
-@@ -113,10 +118,38 @@ export interface AlarmSchedule {
- 
-   /**
-    * Days of week for recurring alarms (0 = Sunday, 6 = Saturday)
--   * Required for 'recurring' type
-+   * Required for 'recurring' type with 'weekly' repeatInterval
-    */
-   daysOfWeek?: DayOfWeek[];
- 
-+  /**
-+   * Repeat interval for recurring alarms
-+   * - 'daily': repeats every day at the same time
-+   * - 'weekly': repeats on specified daysOfWeek
-+   * - 'monthly': repeats on the same day of month each month
-+   * - 'yearly': repeats on the same month/day each year
-+   */
-+  repeatInterval?: AlarmRepeatInterval;
-+
-+  /**
-+   * Start date for recurring alarms
-+   * The first occurrence will be at this date/time (if in the future)
-+   * If not provided, starts from next occurrence from now
-+   */
-+  startDate?: Date;
-+
-+  /**
-+   * Day of month for monthly/yearly recurring alarms (1-31)
-+   * If not provided, uses the day from startDate or current date
-+   */
-+  dayOfMonth?: number;
-+
-+  /**
-+   * Month of year for yearly recurring alarms (1-12)
-+   * If not provided, uses the month from startDate or current date
-+   */
-+  monthOfYear?: number;
-+
-   /**
-    * Interval in minutes (for 'interval' type)
-    * Required for 'interval' type
-@@ -577,11 +610,27 @@ export const AlarmValidation = {
-         if (schedule.time.minute < 0 || schedule.time.minute > 59) return false;
- 
-         if (schedule.type === 'recurring') {
--          if (!schedule.daysOfWeek || schedule.daysOfWeek.length === 0) {
--            return false;
-+          // Validate repeatInterval-specific requirements
-+          if (schedule.repeatInterval === 'weekly') {
-+            if (!schedule.daysOfWeek || schedule.daysOfWeek.length === 0) {
-+              return false;
-+            }
-+            if (schedule.daysOfWeek.some(day => day < 0 || day > 6)) {
-+              return false;
-+            }
-+          } else if (schedule.repeatInterval === 'monthly' || schedule.repeatInterval === 'yearly') {
-+            if (schedule.dayOfMonth !== undefined) {
-+              if (schedule.dayOfMonth < 1 || schedule.dayOfMonth > 31) {
-+                return false;
-+              }
-+            }
-           }
--          if (schedule.daysOfWeek.some(day => day < 0 || day > 6)) {
--            return false;
-+          if (schedule.repeatInterval === 'yearly') {
-+            if (schedule.monthOfYear !== undefined) {
-+              if (schedule.monthOfYear < 1 || schedule.monthOfYear > 12) {
-+                return false;
-+              }
-+            }
-           }
-         }
-         break;
