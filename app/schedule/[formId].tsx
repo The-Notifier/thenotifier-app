@@ -5,6 +5,7 @@ import { useCallback, useEffect } from 'react';
 import { ScheduleForm, ScheduleFormParams } from '@/components/scheduleForm';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useT } from '@/utils/i18n';
 import { Toast } from 'toastify-react-native';
 
 export default function ScheduleFormScreen() {
@@ -13,6 +14,7 @@ export default function ScheduleFormScreen() {
   const allParams = useLocalSearchParams();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
 
   // Hide header for this screen
   useEffect(() => {
@@ -58,7 +60,7 @@ export default function ScheduleFormScreen() {
     // Small delay to ensure alert is dismissed before navigation
     Toast.show({
       type: 'success',
-      text1: isEditMode ? 'Your notification has been updated!' : 'Your notification has been scheduled!',
+      text1: isEditMode ? t('toastMessages.notificationUpdated') : t('toastMessages.notificationScheduled'),
       position: 'center',
       visibilityTime: 3000,
       autoHide: true,
@@ -72,7 +74,7 @@ export default function ScheduleFormScreen() {
     setTimeout(() => {
       router.replace('/(tabs)' as any);
     }, 100);
-  }, [router]);
+  }, [router, isEditMode, t]);
 
   const handleCancel = useCallback(() => {
     if (isEditMode) {

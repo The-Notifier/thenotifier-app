@@ -2106,3 +2106,40 @@ export const catchUpRepeatOccurrences = async (): Promise<void> => {
   }
 };
 
+// Get app language preference
+export const getAppLanguage = async (): Promise<string> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{ value: string }>(
+      `SELECT value FROM appPreferences WHERE key = 'appLanguage';`
+    );
+    if (result && result.value) {
+      return result.value;
+    }
+    // Default to 'en' if not set, and save it
+    await setAppLanguage('en');
+    return 'en';
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'getAppLanguage'), 'Failed to get app language:', error);
+    return 'en'; // Default to 'en' on error
+  }
+};
+
+// Set app language preference
+export const setAppLanguage = async (lang: string): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    await db.execAsync(
+      `INSERT OR REPLACE INTO appPreferences (key, value, updatedAt)
+      VALUES ('appLanguage', '${escapeSql(lang)}', CURRENT_TIMESTAMP);`
+    );
+    logger.info(makeLogHeader(LOG_FILE, 'setAppLanguage'), `App language saved: ${lang}`);
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'setAppLanguage'), 'Failed to save app language:', error);
+    throw new Error(`Failed to save app language: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+

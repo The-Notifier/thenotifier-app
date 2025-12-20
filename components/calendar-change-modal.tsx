@@ -4,6 +4,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ChangedCalendarEvent, formatChangedFields } from '@/utils/calendar-check';
 import { saveIgnoredCalendarEvent } from '@/utils/database';
+import { useT } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { useCallback, useEffect, useState } from 'react';
 import { Modal, StyleSheet, TouchableOpacity } from 'react-native';
@@ -19,6 +20,7 @@ type CalendarChangeModalProps = {
 export function CalendarChangeModal({ visible, changedEvents, onClose }: CalendarChangeModalProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
   const [ignoredEventKeys, setIgnoredEventKeys] = useState<Set<string>>(new Set());
 
   const handleIgnore = useCallback(async (event: ChangedCalendarEvent) => {
@@ -44,6 +46,13 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
     return !ignoredEventKeys.has(eventKey);
   });
 
+  // Close modal if all events were ignored (use effect to avoid calling onClose during render)
+  useEffect(() => {
+    if (visible && changedEvents.length > 0 && visibleEvents.length === 0) {
+      onClose();
+    }
+  }, [visible, changedEvents.length, visibleEvents.length, onClose]);
+
   const formatDateTime = (date: Date) => {
     return date.toLocaleString('en-US', {
       month: 'short',
@@ -55,10 +64,6 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
   };
 
   if (!visible || visibleEvents.length === 0) {
-    // If all events were ignored, close the modal
-    if (changedEvents.length > 0 && visibleEvents.length === 0) {
-      onClose();
-    }
     return null;
   }
 
@@ -73,15 +78,15 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
         <ThemedView style={[styles.modalContainer, { backgroundColor: colors.background, borderColor: colors.icon + '40' }]}>
           <ThemedView style={styles.content}>
             <ThemedText type="title" maxFontSizeMultiplier={1.6} style={styles.title}>
-              Calendar Updates Detected
+              {t('popupTitles.calendarUpdatesDetected')}
             </ThemedText>
 
             <ThemedText maxFontSizeMultiplier={1.6} style={styles.message}>
-              We found updates to your calendar that might affect your upcoming notifications. You should review them and make edits if needed.
+              {t('popupMessages.calendarUpdatesMessage')}
             </ThemedText>
 
             <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.subtitle}>
-              Calendar details have changed for:
+              {t('popupMessages.calendarDetailsChanged')}
             </ThemedText>
 
             <ThemedView style={styles.eventsList}>
@@ -101,7 +106,7 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
                       </ThemedText>
                       {event.isDeleted ? (
                         <ThemedText maxFontSizeMultiplier={1.6} style={[styles.changeText, { fontStyle: 'italic', color: colors.icon }]}>
-                          This event was removed from your calendar
+                          {t('calendarScreen.eventRemoved')}
                         </ThemedText>
                       ) : event.changedFields && event.changedFields.length > 0 ? (
                         <ThemedText maxFontSizeMultiplier={1.6} style={[styles.changeText, { fontStyle: 'italic', color: colors.icon }]}>
@@ -115,7 +120,7 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
                       activeOpacity={0.7}
                     >
                       <ThemedText maxFontSizeMultiplier={1.2} style={[styles.ignoreButtonText, { color: colors.tint }]}>
-                        Ignore
+                        {t('buttonText.ignore')}
                       </ThemedText>
                     </TouchableOpacity>
                   </ThemedView>
@@ -129,7 +134,7 @@ export function CalendarChangeModal({ visible, changedEvents, onClose }: Calenda
               activeOpacity={0.7}
             >
               <ThemedText maxFontSizeMultiplier={1.6} style={[styles.okButtonText, { color: colors.buttonText }]}>
-                Ok
+                {t('buttonText.ok')}
               </ThemedText>
             </TouchableOpacity>
           </ThemedView>

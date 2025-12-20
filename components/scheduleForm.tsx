@@ -10,6 +10,7 @@ import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { archiveScheduledNotifications, deleteScheduledNotification, getAlarmPermissionDenied, getAllActiveDailyAlarmInstances, getAllActiveRepeatNotificationInstances, getWindowSize, markAllDailyAlarmInstancesCancelled, markAllRepeatNotificationInstancesCancelled, saveAlarmPermissionDenied, saveScheduledNotificationData, scheduleDailyAlarmWindow, scheduleRollingWindowNotifications } from '@/utils/database';
+import { useT } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { getPermissionInstructions } from '@/utils/permissions';
 import * as Crypto from 'expo-crypto';
@@ -108,6 +109,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
   const [showRepeatPicker, setShowRepeatPicker] = useState(false);
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
   const scrollViewRef = useRef<any>(null);
   const messageInputRef = useRef<TextInput>(null);
   const noteInputRef = useRef<TextInput>(null);
@@ -236,8 +238,8 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               if (authStatus === 'denied' || (capability.requiresPermission && authStatus !== 'authorized')) {
                 // Alarm permissions are denied, remove alarm from notification
                 Alert.alert(
-                  'Alarm Permission Required',
-                  'The alarm will be removed from this upcoming notification because this app no longer has permission to set alarms.'
+                  t('alertTitles.alarmPermissionRequired'),
+                  t('alertMessages.alarmWillBeRemoved')
                 );
 
                 // Cancel the existing alarm
@@ -302,9 +304,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       if (count >= MAX_SCHEDULED_NOTIFICATION_COUNT) {
         logger.info(makeLogHeader(LOG_FILE, 'checkNotificationLimit'), 'Maximum notifications reached:', count);
         Alert.alert(
-          'Maximum Notifications Reached',
-          `Uh oh, you've reached the maximum of ${MAX_SCHEDULED_NOTIFICATION_COUNT} scheduled notifications. You can delete an upcoming notification if you need to schedule a new notification.`,
-          [{ text: 'OK' }]
+          t('alertTitles.maximumNotificationsReached'),
+          t('alertMessages.maxNotificationsReached', { max: MAX_SCHEDULED_NOTIFICATION_COUNT }),
+          [{ text: t('buttonText.ok') }]
         );
         return true; // Limit reached
       }
@@ -534,19 +536,19 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
   const formatRepeatOption = useCallback((option: 'none' | 'daily' | 'weekly' | 'monthly' | 'yearly') => {
     switch (option) {
       case 'none':
-        return 'Do not repeat';
+        return t('repeatOptions.doNotRepeat');
       case 'daily':
-        return 'Repeat every day';
+        return t('repeatOptions.repeatEveryDay');
       case 'weekly':
-        return 'Repeat every week';
+        return t('repeatOptions.repeatEveryWeek');
       case 'monthly':
-        return 'Repeat every month';
+        return t('repeatOptions.repeatEveryMonth');
       case 'yearly':
-        return 'Repeat every year';
+        return t('repeatOptions.repeatEveryYear');
       default:
-        return 'Do not repeat';
+        return t('repeatOptions.doNotRepeat');
     }
-  }, []);
+  }, [t]);
 
   const handleDonePress = useCallback(() => {
     setShowDatePicker(false);
@@ -609,9 +611,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
         if (capability.requiresPermission && authStatus === 'denied') {
           // Permissions denied, show alert with instructions
           Alert.alert(
-            'Alarm Permission Required',
+            t('alertTitles.alarmPermissionRequired'),
             getPermissionInstructions('alarm'),
-            [{ text: 'OK' }]
+            [{ text: t('buttonText.ok') }]
           );
           // Don't change the switch value
           return;
@@ -621,9 +623,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             const granted = await NativeAlarmManager.requestPermission();
             if (!granted) {
               Alert.alert(
-                'Alarm Permission Required',
+                t('alertTitles.alarmPermissionRequired'),
                 getPermissionInstructions('alarm'),
-                [{ text: 'OK' }]
+                [{ text: t('buttonText.ok') }]
               );
               await saveAlarmPermissionDenied(true);
               setAlarmPermissionDenied(true);
@@ -640,9 +642,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
 
             if (errorCheckAuthStatus === 'denied') {
               Alert.alert(
-                'Alarm Permission Required',
+                t('alertTitles.alarmPermissionRequired'),
                 getPermissionInstructions('alarm'),
-                [{ text: 'OK' }]
+                [{ text: t('buttonText.ok') }]
               );
               await saveAlarmPermissionDenied(true);
               setAlarmPermissionDenied(true);
@@ -652,9 +654,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
         } else if (capability.requiresPermission && authStatus !== 'authorized') {
           // Not authorized, show alert
           Alert.alert(
-            'Alarm Permission Required',
+            t('alertTitles.alarmPermissionRequired'),
             getPermissionInstructions('alarm'),
-            [{ text: 'OK' }]
+            [{ text: t('buttonText.ok') }]
           );
           return;
         }
@@ -763,11 +765,11 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       resetForm();
       if (source === 'home') {
         Alert.alert(
-          'Cancel Edit',
-          'The upcoming event will be unchanged.',
+          t('alertTitles.cancelEdit'),
+          t('alertMessages.cancelEditConfirmation'),
           [
             {
-              text: 'OK',
+              text: t('buttonText.ok'),
               onPress: () => {
                 onCancel?.();
               },
@@ -792,24 +794,24 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       const notificationPermissions = await Notifications.getPermissionsAsync();
       if (notificationPermissions.status !== 'granted') {
         Alert.alert(
-          'Notification Permission Required',
-          'This app will not work until notifications are enabled.\n\n' + getPermissionInstructions('notification'),
-          [{ text: 'OK' }]
+          t('alertTitles.notificationPermissionRequired'),
+          t('alertMessages.notificationPermissionRequired', { instructions: getPermissionInstructions('notification') }),
+          [{ text: t('buttonText.ok') }]
         );
         return;
       }
     } catch (error) {
       logger.error(makeLogHeader(LOG_FILE, 'scheduleNotification'), 'Failed to check notification permissions:', error);
       Alert.alert(
-        'Notification Permission Required',
-        'This app will not work until notifications are enabled.\n\n' + getPermissionInstructions('notification'),
-        [{ text: 'OK' }]
+        t('alertTitles.notificationPermissionRequired'),
+        t('alertMessages.notificationPermissionRequired', { instructions: getPermissionInstructions('notification') }),
+        [{ text: t('buttonText.ok') }]
       );
       return;
     }
 
     if (!message.trim()) {
-      Alert.alert('Error', 'You forgot the message');
+      Alert.alert(t('alertTitles.error'), t('alertMessages.forgotMessage'));
       return;
     }
 
@@ -822,7 +824,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
     const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
 
     if (dateWithoutSeconds <= oneMinuteFromNow) {
-      Alert.alert('Error', 'Select a future date and time more than 1 minute from now');
+      Alert.alert(t('alertTitles.error'), t('alertMessages.selectFutureDate'));
       return;
     }
 
@@ -899,7 +901,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
         logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), 'Deleted existing notification from DB:', editingNotificationId);
       } catch (error) {
         logger.error(makeLogHeader(LOG_FILE, 'scheduleNotification'), 'Failed to cancel/delete existing notification:', error);
-        Alert.alert('Error', 'Failed to update notification. Please try again.');
+        Alert.alert(t('alertTitles.error'), t('alertMessages.failedToUpdate'));
         return;
       }
     }
@@ -1130,9 +1132,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             neededToDelete: neededToDelete,
           });
           Alert.alert(
-            'Maximum Notifications Reached',
-            `Your phone limits the number of notifications that can be scheduled. To schedule this, you will need to delete ${neededToDelete} notifications.`,
-            [{ text: 'OK' }]
+            t('alertTitles.maximumNotificationsReached'),
+            t('alertMessages.maxNotificationsCapacityExceeded', { needed: neededToDelete }),
+            [{ text: t('buttonText.ok') }]
           );
           return;
         }
@@ -1229,9 +1231,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                   await saveAlarmPermissionDenied(true);
                   setAlarmPermissionDenied(true);
                   Alert.alert(
-                    'Alarm Permission Denied',
+                    t('alertTitles.alarmPermissionDenied'),
                     getPermissionInstructions('alarm'),
-                    [{ text: 'OK' }]
+                    [{ text: t('buttonText.ok') }]
                   );
                   resetForm();
                   return;
@@ -1249,9 +1251,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                   await saveAlarmPermissionDenied(true);
                   setAlarmPermissionDenied(true);
                   Alert.alert(
-                    'Alarm Permission Required',
+                    t('alertTitles.alarmPermissionRequired'),
                     getPermissionInstructions('alarm'),
-                    [{ text: 'OK' }]
+                    [{ text: t('buttonText.ok') }]
                   );
                   resetForm();
                   return;
@@ -1273,17 +1275,17 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                   await saveAlarmPermissionDenied(true);
                   setAlarmPermissionDenied(true);
                   Alert.alert(
-                    'Alarm Permission Denied',
+                    t('alertTitles.alarmPermissionDenied'),
                     getPermissionInstructions('alarm'),
-                    [{ text: 'OK' }]
+                    [{ text: t('buttonText.ok') }]
                   );
                   resetForm();
                   return;
                 } else {
                   Alert.alert(
-                    'Alarm Permission Error',
-                    `Unable to request alarm permission: ${errorMsg}\n\nThis may be a system issue. Please try again or restart the app.`,
-                    [{ text: 'OK' }]
+                    t('alertTitles.alarmPermissionError'),
+                    t('alertMessages.alarmPermissionError', { error: errorMsg }),
+                    [{ text: t('buttonText.ok') }]
                   );
                   resetForm();
                   return;
@@ -1301,9 +1303,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               return;
             } else if (authStatus !== 'authorized') {
               Alert.alert(
-                'Alarm Permission Required',
+                t('alertTitles.alarmPermissionRequired'),
                 getPermissionInstructions('alarm'),
-                [{ text: 'OK' }]
+                [{ text: t('buttonText.ok') }]
               );
               resetForm();
               return;
@@ -1427,7 +1429,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               [{ text: 'OK' }]
             );
           } else {
-            Alert.alert('Warning', `The notification was scheduled, but there was a problem scheduling the alarm: ${errorMessage}`);
+            Alert.alert(t('alertTitles.warning'), t('alertMessages.alarmSchedulingWarning', { error: errorMessage }));
           }
         }
       }
@@ -1452,20 +1454,20 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
 
         switch (repeatOption) {
           case 'daily':
-            alertTitle = 'Daily Alarm';
-            alertMessage = "To prevent your phone from stopping this daily alarm, you may need to use this app at least once every two week period after the start date.";
+            alertTitle = t('alertTitles.dailyAlarm');
+            alertMessage = t('alertMessages.dailyAlarmMessage');
             break;
           case 'weekly':
-            alertTitle = 'Weekly Notification';
-            alertMessage = "To prevent your phone from stopping this weekly notification, you may need to use use this app at least once a month after the start date.";
+            alertTitle = t('alertTitles.weeklyNotification');
+            alertMessage = t('alertMessages.weeklyNotificationMessage');
             break;
           case 'monthly':
-            alertTitle = 'Monthly Notification';
-            alertMessage = "To prevent your phone from stopping this monthly notification, you may need to use use this app at least once a month after the start date.";
+            alertTitle = t('alertTitles.monthlyNotification');
+            alertMessage = t('alertMessages.monthlyNotificationMessage');
             break;
           case 'yearly':
-            alertTitle = 'Yearly Notification';
-            alertMessage = "To prevent your phone from stopping this yearly notification, you may need to use use this app at least once a year after the start date.";
+            alertTitle = t('alertTitles.yearlyNotification');
+            alertMessage = t('alertMessages.yearlyNotificationMessage');
             break;
         }
 
@@ -1479,7 +1481,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
           alertMessage,
           [
             {
-              text: 'OK',
+              text: t('buttonText.ok'),
               onPress: () => {
                 resetForm();
                 onSuccess?.();
@@ -1494,9 +1496,9 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       }
     } catch (error) {
       if (isEditMode) {
-        Alert.alert('Error', 'Sorry, your notification could not be updated.');
+        Alert.alert(t('alertTitles.error'), t('alertMessages.failedToUpdateGeneric'));
       } else {
-        Alert.alert('Error', 'Sorry, your notification could not be scheduled.');
+        Alert.alert(t('alertTitles.error'), t('alertMessages.failedToSchedule'));
       }
       logger.error(makeLogHeader(LOG_FILE, 'scheduleNotification'), error);
       logger.error(makeLogHeader(LOG_FILE, 'scheduleNotification'), 'Failed to schedule notification with ID:', notificationId);
@@ -1556,12 +1558,12 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                 style={clearButtonStyle}
                 onPress={handleClearOrCancel}
                 activeOpacity={0.7}>
-                <ThemedText maxFontSizeMultiplier={1.2} style={clearButtonTextStyle}>{source === 'home' || source === 'calendar' ? 'Cancel' : 'Clear'}</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.2} style={clearButtonTextStyle}>{source === 'home' || source === 'calendar' ? t('buttonText.cancel') : t('buttonText.clear')}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Date & Time</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('inputLabels.dateAndTime')}</ThemedText>
               <TouchableOpacity
                 style={dateButtonStyle}
                 onPress={handleDateButtonPress}>
@@ -1587,7 +1589,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               <TouchableOpacity
                 style={doneButtonStyle}
                 onPress={handleDonePress}>
-                <ThemedText maxFontSizeMultiplier={1.6} style={doneButtonTextStyle}>Done</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.6} style={doneButtonTextStyle}>{t('buttonText.done')}</ThemedText>
               </TouchableOpacity>
             )}
 
@@ -1608,11 +1610,11 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                     style={[styles.picker, { color: colors.text }]}
                     itemStyle={{ color: colors.text }}
                   >
-                    <Picker.Item label="Do not repeat" value="none" />
-                    <Picker.Item label="Repeat every day" value="daily" />
-                    <Picker.Item label="Repeat every week" value="weekly" />
-                    <Picker.Item label="Repeat every month" value="monthly" />
-                    <Picker.Item label="Repeat every year" value="yearly" />
+                    <Picker.Item label={t('repeatOptions.doNotRepeat')} value="none" />
+                    <Picker.Item label={t('repeatOptions.repeatEveryDay')} value="daily" />
+                    <Picker.Item label={t('repeatOptions.repeatEveryWeek')} value="weekly" />
+                    <Picker.Item label={t('repeatOptions.repeatEveryMonth')} value="monthly" />
+                    <Picker.Item label={t('repeatOptions.repeatEveryYear')} value="yearly" />
                   </Picker>
                 </ThemedView>
               )
@@ -1622,17 +1624,17 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
                 <TouchableOpacity
                   style={doneButtonStyle}
                   onPress={handleRepeatDonePress}>
-                  <ThemedText maxFontSizeMultiplier={1.6} style={doneButtonTextStyle}>Done</ThemedText>
+                  <ThemedText maxFontSizeMultiplier={1.6} style={doneButtonTextStyle}>{t('buttonText.done')}</ThemedText>
                 </TouchableOpacity >
               )
             }
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Message</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('inputLabels.message')}</ThemedText>
               <TextInput
                 ref={messageInputRef}
                 style={inputStyle}
-                placeholder="Notification message"
+                placeholder={t('inputPlaceholders.notificationMessage')}
                 placeholderTextColor={colors.placeholderText}
                 value={message}
                 onChangeText={setMessage}
@@ -1644,11 +1646,11 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             </ThemedView >
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Note (optional)</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('inputLabels.noteOptional')}</ThemedText>
               <TextInput
                 ref={noteInputRef}
                 style={textAreaStyle}
-                placeholder="A short note"
+                placeholder={t('inputPlaceholders.shortNote')}
                 placeholderTextColor={colors.placeholderText}
                 value={note}
                 onChangeText={setNote}
@@ -1660,11 +1662,11 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             </ThemedView >
 
             <ThemedView style={styles.inputGroup}>
-              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Link (optional)</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('inputLabels.linkOptional')}</ThemedText>
               <TextInput
                 ref={linkInputRef}
                 style={inputStyle}
-                placeholder="Link to open for this notification"
+                placeholder={t('inputPlaceholders.linkToOpen')}
                 placeholderTextColor={colors.placeholderText}
                 value={link}
                 onChangeText={setLink}
@@ -1678,7 +1680,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             {alarmSupported && (
               <ThemedView style={styles.inputGroup}>
                 <ThemedView style={styles.switchContainer}>
-                  <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Alarm</ThemedText>
+                  <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('inputLabels.alarm')}</ThemedText>
                   <Switch
                     value={scheduleAlarm}
                     onValueChange={handleAlarmSwitchChange}
@@ -1697,7 +1699,7 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               <ThemedText
                 maxFontSizeMultiplier={1.6}
                 style={scheduleButtonTextStyle}>
-                {isEditMode ? 'Update' : 'Schedule'} Notification
+                {isEditMode ? t('buttonText.updateNotification') : t('buttonText.scheduleNotification')}
               </ThemedText>
             </TouchableOpacity >
           </ThemedView >

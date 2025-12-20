@@ -5,6 +5,7 @@ import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useAppearance } from '@/components/appearance-provider';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useT } from '@/utils/i18n';
 
 type AppearanceMode = 'system' | 'light' | 'dark';
 
@@ -13,16 +14,18 @@ interface AppearanceModalProps {
   onClose: () => void;
 }
 
-const APPEARANCE_MODES: Array<{ mode: AppearanceMode; label: string; icon: string }> = [
-  { mode: 'dark', label: 'Dark mode', icon: 'moon.fill' },
-  { mode: 'light', label: 'Light mode', icon: 'sun.max.fill' },
-  { mode: 'system', label: 'Match device mode', icon: 'circle.lefthalf.filled' },
+const getAppearanceModes = (t: (key: string) => string): Array<{ mode: AppearanceMode; label: string; icon: string }> => [
+  { mode: 'dark', label: t('appearanceModes.darkMode'), icon: 'moon.fill' },
+  { mode: 'light', label: t('appearanceModes.lightMode'), icon: 'sun.max.fill' },
+  { mode: 'system', label: t('appearanceModes.matchDeviceMode'), icon: 'circle.lefthalf.filled' },
 ];
 
 export function AppearanceModal({ visible, onClose }: AppearanceModalProps) {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const appearance = useAppearance();
+  const t = useT();
+  const APPEARANCE_MODES = getAppearanceModes(t);
 
   const handleModeSelect = async (mode: AppearanceMode) => {
     try {
@@ -45,7 +48,7 @@ export function AppearanceModal({ visible, onClose }: AppearanceModalProps) {
           onStartShouldSetResponder={() => true}
         >
           <ThemedText type="title" style={styles.title}>
-            Appearance
+            {t('popupTitles.appearance')}
           </ThemedText>
 
           {APPEARANCE_MODES.map((item, index) => {
@@ -94,7 +97,7 @@ export function AppearanceModal({ visible, onClose }: AppearanceModalProps) {
             style={[styles.okButton, { backgroundColor: colors.tint }]}
           >
             <ThemedText maxFontSizeMultiplier={1.4} style={[styles.okButtonText, { color: colors.buttonText }]}>
-              OK
+              {t('buttonText.ok')}
             </ThemedText>
           </TouchableOpacity>
         </ThemedView>

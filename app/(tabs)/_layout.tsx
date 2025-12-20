@@ -5,10 +5,12 @@ import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useT } from '@/utils/i18n';
 
 export default function TabLayout() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
 
   return (
     <Tabs
@@ -24,7 +26,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: t('bottomNavBarLabels.home'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="house.fill" color={color} />
           ),
@@ -33,7 +35,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="schedule"
         options={{
-          title: 'Schedule',
+          title: t('bottomNavBarLabels.schedule'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="plus" color={color} />
           ),
@@ -42,7 +44,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="calendar"
         options={{
-          title: 'Calendar',
+          title: t('bottomNavBarLabels.calendar'),
           tabBarIcon: ({ color, focused }) => (
             <IconSymbol size={28} weight={focused ? 'bold' : 'light'} name="calendar" color={color} />
           ),

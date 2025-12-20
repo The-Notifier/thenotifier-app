@@ -1,0 +1,170 @@
+{
+  "bottomNavBarLabels": {
+    "home": "Home",
+    "schedule": "Schedule",
+    "calendar": "Calendar"
+  },
+  "menuItemText": {
+    "payments": "Payments",
+    "myGroups": "My Groups",
+    "myMembers": "My Members",
+    "help": "Help",
+    "aboutUs": "About Us",
+    "appearance": "Appearance"
+  },
+  "tabBarText": {
+    "upcoming": "Upcoming",
+    "past": "Past",
+    "home": "Home",
+    "schedule": "Schedule",
+    "calendar": "Calendar"
+  },
+  "buttonText": {
+    "delete": "Delete",
+    "edit": "Edit",
+    "cancel": "Cancel",
+    "clear": "Clear",
+    "done": "Done",
+    "ok": "OK",
+    "scheduleNotification": "Schedule Notification",
+    "updateNotification": "Update Notification",
+    "close": "Close",
+    "openLink": "Open Link",
+    "openCalendarEvent": "Open Calendar Event",
+    "selectCalendars": "Select Calendars",
+    "hideCalendarList": "Hide Calendar List",
+    "requestCalendarAccess": "Request Calendar Access",
+    "ignore": "Ignore",
+    "termsAndConditions": "Terms & Conditions",
+    "privacyPolicy": "Privacy Policy"
+  },
+  "inputLabels": {
+    "dateAndTime": "Date & Time",
+    "message": "Message",
+    "noteOptional": "Note (optional)",
+    "linkOptional": "Link (optional)",
+    "alarm": "Alarm",
+    "repeat": "Repeat"
+  },
+  "inputPlaceholders": {
+    "notificationMessage": "Notification message",
+    "shortNote": "A short note",
+    "linkToOpen": "Link to open for this notification"
+  },
+  "alertTitles": {
+    "deleteNotification": "Delete Notification",
+    "cancelEdit": "Cancel Edit",
+    "error": "Error",
+    "warning": "Warning",
+    "success": "Success",
+    "menu": "Menu",
+    "alarmPermissionRequired": "Alarm Permission Required",
+    "alarmPermissionDenied": "Alarm Permission Denied",
+    "alarmPermissionError": "Alarm Permission Error",
+    "notificationPermissionRequired": "Notification Permission Required",
+    "maximumNotificationsReached": "Maximum Notifications Reached",
+    "calendarPermissionRequired": "Calendar Permission Required",
+    "permissionRequired": "Permission Required",
+    "configurationRequired": "Configuration Required",
+    "configurationError": "Configuration Error",
+    "settings": "Settings",
+    "existingNotification": "Existing Notification",
+    "dailyAlarm": "Daily Alarm",
+    "weeklyNotification": "Weekly Notification",
+    "monthlyNotification": "Monthly Notification",
+    "yearlyNotification": "Yearly Notification"
+  },
+  "alertMessages": {
+    "deleteConfirmation": "Are you sure you want to cancel this scheduled notification?",
+    "cancelEditConfirmation": "The upcoming event will be unchanged.",
+    "forgotMessage": "You forgot the message",
+    "selectFutureDate": "Select a future date and time more than 1 minute from now",
+    "failedToUpdate": "Failed to update notification. Please try again.",
+    "failedToSchedule": "Sorry, your notification could not be scheduled.",
+    "failedToUpdateGeneric": "Sorry, your notification could not be updated.",
+    "maxNotificationsReached": "Uh oh, you've reached the maximum of {{max}} scheduled notifications. You can delete an upcoming notification if you need to schedule a new notification.",
+    "maxNotificationsCapacityExceeded": "Your phone limits the number of notifications that can be scheduled. To schedule this, you will need to delete {{needed}} notifications.",
+    "alarmWillBeRemoved": "The alarm will be removed from this upcoming notification because this app no longer has permission to set alarms.",
+    "notificationPermissionRequired": "This app will not work until notifications are enabled.\n\n{{instructions}}",
+    "alarmPermissionDenied": "{{instructions}}",
+    "alarmPermissionError": "Unable to request alarm permission: {{error}}\n\nThis may be a system issue. Please try again or restart the app.",
+    "calendarPermissionRequired": "{{instructions}}",
+    "permissionRequired": "Please enable calendar access in your device settings.",
+    "configurationRequired": "Calendar permissions need to be configured. Please rebuild the app:\n\n1. Stop the current app\n2. Run: npx expo prebuild --clean\n3. Rebuild and run the app",
+    "configurationError": "Calendar permissions are not properly configured. Please rebuild the app after adding calendar permissions to Info.plist.",
+    "failedToRequestCalendarPermissions": "Failed to request calendar permissions",
+    "failedToLoadCalendars": "Failed to load calendars",
+    "failedToLoadCalendarEvents": "Failed to load calendar events",
+    "settingsInstructions": "Please go to Settings > The Notifier > Calendar and enable access.",
+    "existingNotificationMessage": "There's an upcoming notification for this. Do you want to create another one?",
+    "dailyAlarmMessage": "To prevent your phone from stopping this daily alarm, you may need to use this app at least once every two week period after the start date.",
+    "weeklyNotificationMessage": "To prevent your phone from stopping this weekly notification, you may need to use use this app at least once a month after the start date.",
+    "monthlyNotificationMessage": "To prevent your phone from stopping this monthly notification, you may need to use use this app at least once a month after the start date.",
+    "yearlyNotificationMessage": "To prevent your phone from stopping this yearly notification, you may need to use use this app at least once a year after the start date.",
+    "alarmSchedulingWarning": "The notification was scheduled, but there was a problem scheduling the alarm: {{error}}"
+  },
+  "popupTitles": {
+    "appearance": "Appearance",
+    "calendarUpdatesDetected": "Calendar Updates Detected"
+  },
+  "popupMessages": {
+    "calendarUpdatesMessage": "We found updates to your calendar that might affect your upcoming notifications. You should review them and make edits if needed.",
+    "calendarDetailsChanged": "Calendar details have changed for:"
+  },
+  "errorMessages": {
+    "calendarEventNotFound": "Calendar event not found. Please check your calendar app.",
+    "unableToGenerateCalendarLink": "Unable to generate calendar link for this platform.",
+    "unableToOpenCalendarEvent": "Unable to open calendar event. Please open your calendar app manually.",
+    "invalidCalendarEventLink": "Invalid calendar event link",
+    "invalidLinkFormat": "Invalid link format",
+    "unableToOpenLink": "Unable to open this link",
+    "unableToOpenLinkGeneric": "Unable to open link"
+  },
+  "toastMessages": {
+    "notificationCancelled": "Your notification has been cancelled",
+    "notificationScheduled": "Your notification has been scheduled!",
+    "notificationUpdated": "Your notification has been updated!"
+  },
+  "emptyStates": {
+    "noUpcomingNotifications": "No upcoming notifications",
+    "noSentNotifications": "No sent notifications",
+    "selectCalendarsToViewEvents": "Select calendars to view events",
+    "noEventsFound": "No events found for the next 30 days",
+    "checkingCalendarPermissions": "Checking calendar permissions...",
+    "permissionDenied": "(Permission denied)"
+  },
+  "repeatOptions": {
+    "doNotRepeat": "Do not repeat",
+    "repeatEveryDay": "Repeat every day",
+    "repeatEveryWeek": "Repeat every week",
+    "repeatEveryMonth": "Repeat every month",
+    "repeatEveryYear": "Repeat every year"
+  },
+  "repeatDisplay": {
+    "repeatsDailyAt": "Repeats every day at {{time}}",
+    "repeatsWeeklyOn": "Repeats every week on {{day}}",
+    "repeatsMonthlyOn": "Repeats every month on the {{day}}{{suffix}}",
+    "repeatsYearly": "Repeats every year"
+  },
+  "detailLabels": {
+    "repeat": "Repeat:",
+    "note": "Note:",
+    "link": "Link:",
+    "location": "Location:",
+    "noteLabel": "Note:"
+  },
+  "calendarScreen": {
+    "calendarEvents": "Calendar Events",
+    "scheduleNotification": "Schedule Notification",
+    "eventRemoved": "This event was removed from your calendar"
+  },
+  "notificationDisplay": {
+    "note": "Note:"
+  },
+  "appearanceModes": {
+    "darkMode": "Dark mode",
+    "lightMode": "Light mode",
+    "matchDeviceMode": "Match device mode"
+  },
+  "menuSelected": "Selected: {{item}}"
+}

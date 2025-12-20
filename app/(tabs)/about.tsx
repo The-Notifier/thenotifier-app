@@ -7,22 +7,24 @@ import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useT } from '@/utils/i18n';
 import { openNotifierLink } from '@/utils/open-link';
 
 export default function AboutScreen() {
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
   const insets = useSafeAreaInsets();
+  const t = useT();
 
   // Get app version from Expo config
   const appVersion = Constants.expoConfig?.version || ' ';
 
   const handleTermsPress = async () => {
-    await openNotifierLink('https://www.hapawillow.com/');
+    await openNotifierLink('https://www.hapawillow.com/', t);
   };
 
   const handlePrivacyPress = async () => {
-    await openNotifierLink('https://www.hapawillow.com/');
+    await openNotifierLink('https://www.hapawillow.com/', t);
   };
 
   return (
@@ -49,9 +51,9 @@ export default function AboutScreen() {
           onPress={handleTermsPress}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="Terms & Conditions">
+          accessibilityLabel={t('buttonText.termsAndConditions')}>
           <ThemedText maxFontSizeMultiplier={1.6} style={[styles.buttonText, { color: colors.tint }]}>
-            Terms & Conditions
+            {t('buttonText.termsAndConditions')}
           </ThemedText>
         </TouchableOpacity>
 
@@ -60,9 +62,9 @@ export default function AboutScreen() {
           onPress={handlePrivacyPress}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityLabel="Privacy Policy">
+          accessibilityLabel={t('buttonText.privacyPolicy')}>
           <ThemedText maxFontSizeMultiplier={1.6} style={[styles.buttonText, { color: colors.tint }]}>
-            Privacy Policy
+            {t('buttonText.privacyPolicy')}
           </ThemedText>
         </TouchableOpacity>
       </ThemedView>

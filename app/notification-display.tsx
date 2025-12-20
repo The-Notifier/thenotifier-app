@@ -5,6 +5,7 @@ import { useColorScheme } from '@/hooks/use-color-scheme';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useMemo } from 'react';
 import { StyleSheet, TouchableOpacity } from 'react-native';
+import { useT } from '@/utils/i18n';
 import { openNotifierLink } from '@/utils/open-link';
 import { logger, makeLogHeader } from '@/utils/logger';
 
@@ -16,6 +17,7 @@ export default function NotificationDisplayScreen() {
 
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
   const closeButtonStyle = useMemo(() => [
     styles.closeButton,
     { backgroundColor: colors.tint }
@@ -43,7 +45,7 @@ export default function NotificationDisplayScreen() {
 
   const handleOpenLink = async () => {
     if (!link) return;
-    await openNotifierLink(link);
+    await openNotifierLink(link, t);
   };
 
   return (
@@ -54,7 +56,7 @@ export default function NotificationDisplayScreen() {
           <ThemedText type="message" maxFontSizeMultiplier={1.6} style={styles.message}>{message}</ThemedText>
           {note && (
             <>
-              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>Note:</ThemedText>
+              <ThemedText type="subtitle" maxFontSizeMultiplier={1.6}>{t('notificationDisplay.note')}</ThemedText>
               <ThemedText maxFontSizeMultiplier={1.6} style={styles.note} selectable>{note}</ThemedText>
             </>
           )
@@ -65,7 +67,7 @@ export default function NotificationDisplayScreen() {
                 style={linkButtonStyle}
                 onPress={handleOpenLink}>
                 <ThemedText maxFontSizeMultiplier={1.6} style={linkButtonTextStyle}>
-                  {link.startsWith('thenotifier://calendar-event') ? 'Open Calendar Event' : 'Open Link'}
+                  {link.startsWith('thenotifier://calendar-event') ? t('buttonText.openCalendarEvent') : t('buttonText.openLink')}
                 </ThemedText>
               </TouchableOpacity >
             )
@@ -73,7 +75,7 @@ export default function NotificationDisplayScreen() {
         </ThemedView >
         <TouchableOpacity style={closeButtonStyle} onPress={() => router.back()}>
           <ThemedText type="link" maxFontSizeMultiplier={1.6} style={closeButtonTextStyle}>
-            Close
+            {t('buttonText.close')}
           </ThemedText>
         </TouchableOpacity >
       </ThemedView >
