@@ -12,6 +12,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { checkCalendarEventChanges } from '@/utils/calendar-check';
 import { deleteScheduledNotification, getAllActiveDailyAlarmInstances, getAllActiveRepeatNotificationInstances, getAllArchivedNotificationData, getAllScheduledNotificationData, getRepeatOccurrences, getScheduledNotificationData, insertRepeatOccurrence, markAllDailyAlarmInstancesCancelled, markAllRepeatNotificationInstancesCancelled } from '@/utils/database';
+import { useT } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { openNotifierLink } from '@/utils/open-link';
 import { Toast } from 'toastify-react-native';
@@ -81,10 +82,18 @@ const isRepeatOccurrence = (item: PastItem): item is RepeatOccurrenceItem => {
 
 type TabType = 'scheduled' | 'archived';
 
-const MENU_ITEMS = ['Payments', 'My Groups', 'My Members', 'Help', 'About Us', 'Appearance'];
-
 export default function HomeScreen() {
   const router = useRouter();
+  const t = useT();
+
+  const MENU_ITEMS = [
+    t('menuItemText.payments'),
+    t('menuItemText.myGroups'),
+    t('menuItemText.myMembers'),
+    t('menuItemText.help'),
+    t('menuItemText.aboutUs'),
+    t('menuItemText.appearance'),
+  ];
   const [activeTab, setActiveTab] = useState<TabType>('scheduled');
   const [scheduledNotifications, setScheduledNotifications] = useState<ScheduledNotification[]>([]);
   const [archivedNotifications, setArchivedNotifications] = useState<ArchivedNotification[]>([]);
@@ -274,12 +283,12 @@ export default function HomeScreen() {
 
   const handleDelete = async (notification: ScheduledNotification) => {
     Alert.alert(
-      'Delete Notification',
-      'Are you sure you want to cancel this scheduled notification?',
+      t('alertTitles.deleteNotification'),
+      t('alertMessages.deleteConfirmation'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('buttonText.cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('buttonText.delete'),
           style: 'destructive',
           onPress: async () => {
             try {
@@ -336,7 +345,7 @@ export default function HomeScreen() {
 
               Toast.show({
                 type: 'success',
-                text1: 'Your notification has been cancelled',
+                text1: t('toastMessages.notificationCancelled'),
                 position: 'center',
                 visibilityTime: 3000,
                 autoHide: true,
@@ -349,7 +358,7 @@ export default function HomeScreen() {
 
             } catch (error) {
               logger.error(makeLogHeader(LOG_FILE, 'handleDelete'), 'Failed to delete notification:', error);
-              Alert.alert('Error', 'Failed to cancel notification');
+              Alert.alert(t('alertTitles.error'), t('errorMessages.unableToOpenLinkGeneric'));
             }
           },
         },
@@ -421,19 +430,19 @@ export default function HomeScreen() {
             hour: 'numeric',
             minute: '2-digit',
           });
-          return `Repeats every day at ${timeStr}`;
+          return t('repeatDisplay.repeatsDailyAt', { time: timeStr });
         }
         case 'weekly': {
           const dayOfWeek = date.toLocaleString('en-US', { weekday: 'long' });
-          return `Repeats every week on ${dayOfWeek}`;
+          return t('repeatDisplay.repeatsWeeklyOn', { day: dayOfWeek });
         }
         case 'monthly': {
           const day = date.getDate();
           const suffix = day === 1 ? 'st' : day === 2 ? 'nd' : day === 3 ? 'rd' : 'th';
-          return `Repeats every month on the ${day}${suffix}`;
+          return t('repeatDisplay.repeatsMonthlyOn', { day: String(day), suffix });
         }
         case 'yearly':
-          return 'Repeats every year';
+          return t('repeatDisplay.repeatsYearly');
         default:
           return '';
       }
@@ -552,7 +561,7 @@ export default function HomeScreen() {
             {item.repeatOption && item.repeatOption !== 'none' && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                  Repeat:
+                  {t('detailLabels.repeat')}
                 </ThemedText>
                 <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
                   {formatRepeatOption(item.repeatOption, item.scheduleDateTime)}
@@ -563,7 +572,7 @@ export default function HomeScreen() {
             {item.note && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                  Note:
+                  {t('detailLabels.note')}
                 </ThemedText>
                 <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
                   {item.note}
@@ -574,10 +583,10 @@ export default function HomeScreen() {
             {item.link && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                  Link:
+                  {t('detailLabels.link')}
                 </ThemedText>
                 <TouchableOpacity
-                  onPress={() => openNotifierLink(item.link)}
+                  onPress={() => openNotifierLink(item.link, t)}
                   activeOpacity={0.7}>
                   <ThemedText
                     maxFontSizeMultiplier={1.6}
@@ -627,7 +636,7 @@ export default function HomeScreen() {
                   }
                 }}>
                 <IconSymbol name="trash" size={20} color={colors.deleteButtonText} />
-                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>Delete</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.deleteButtonText }]}>{t('buttonText.delete')}</ThemedText>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -635,7 +644,7 @@ export default function HomeScreen() {
                 onPress={() => handleEdit(item)}
                 activeOpacity={0.7}>
                 <IconSymbol name="pencil" size={20} color={colors.buttonText} />
-                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.buttonText }]}>Edit</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.3} style={[styles.actionButtonText, { color: colors.buttonText }]}>{t('buttonText.edit')}</ThemedText>
               </TouchableOpacity>
 
             </ThemedView>
@@ -648,7 +657,6 @@ export default function HomeScreen() {
   const renderArchivedNotificationItem = ({ item }: { item: PastItem }) => {
     const isExpanded = expandedIds.has(item.id);
     const animValue = animations.get(item.id) || new Animated.Value(0);
-    const measuredHeight = drawerHeights.get(item.id) || 250; // Default fallback height
 
     // Handle repeat occurrences differently
     const isRepeat = isRepeatOccurrence(item);
@@ -667,6 +675,13 @@ export default function HomeScreen() {
     const hasLink = displayLink && displayLink.trim().length > 0;
     const hasExpandableContent = hasRepeatOption || hasNote || hasLink;
 
+    // Calculate minimum height for drawer content
+    // paddingTop (16) + detailRow (label ~22px + gap 4px + value ~22px) + paddingBottom (16) = ~80px minimum
+    // Add extra space for multiple rows or larger text
+    const MINIMUM_DRAWER_HEIGHT = 80;
+    const defaultFallbackHeight = hasExpandableContent ? Math.max(250, MINIMUM_DRAWER_HEIGHT) : 0;
+    const measuredHeight = drawerHeights.get(item.id) || defaultFallbackHeight;
+
     const drawerHeight = animValue.interpolate({
       inputRange: [0, 1],
       outputRange: [0, measuredHeight],
@@ -680,10 +695,13 @@ export default function HomeScreen() {
     const handleDrawerContentLayout = (event: any) => {
       const { height } = event.nativeEvent.layout;
       // The measured height already includes padding (16px on all sides)
+      // Enforce minimum height when there's expandable content to prevent drawer from collapsing too small
+      const finalHeight = hasExpandableContent ? Math.max(height, MINIMUM_DRAWER_HEIGHT) : height;
+      
       // Store the height for use in animation
       const currentHeight = drawerHeights.get(item.id);
-      if (currentHeight !== height) {
-        drawerHeights.set(item.id, height);
+      if (currentHeight !== finalHeight) {
+        drawerHeights.set(item.id, finalHeight);
         // Trigger re-render to update animation with new height
         setDrawerHeightUpdateTrigger(prev => prev + 1);
       }
@@ -767,7 +785,7 @@ export default function HomeScreen() {
               {hasRepeatOption && (
                 <ThemedView style={styles.detailRow}>
                   <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                    Repeat:
+                    {t('detailLabels.repeat')}
                   </ThemedText>
                   <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
                     {formatRepeatOption(repeatOption!, displayDateTime)}
@@ -778,7 +796,7 @@ export default function HomeScreen() {
               {hasNote && (
                 <ThemedView style={styles.detailRow}>
                   <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                    Note:
+                    {t('detailLabels.note')}
                   </ThemedText>
                   <ThemedText maxFontSizeMultiplier={1.6} style={styles.detailValue}>
                     {displayNote}
@@ -789,10 +807,10 @@ export default function HomeScreen() {
               {hasLink && (
                 <ThemedView style={styles.detailRow}>
                   <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                    Link:
+                    {t('detailLabels.link')}
                   </ThemedText>
                   <TouchableOpacity
-                    onPress={() => openNotifierLink(displayLink!)}
+                    onPress={() => openNotifierLink(displayLink!, t)}
                     activeOpacity={0.7}>
                     <ThemedText
                       maxFontSizeMultiplier={1.6}
@@ -817,14 +835,14 @@ export default function HomeScreen() {
 
   const handleMenuSelect = (item: string) => {
     setMenuOpen(false);
-    if (item === 'About Us') {
+    if (item === t('menuItemText.aboutUs')) {
       router.push('/about');
-    } else if (item === 'Appearance') {
+    } else if (item === t('menuItemText.appearance')) {
       setAppearanceModalVisible(true);
     } else {
       // Use InteractionManager to ensure Alert shows after interactions complete
       InteractionManager.runAfterInteractions(() => {
-        Alert.alert('Menu', `Selected: ${item}`);
+        Alert.alert(t('alertTitles.menu'), t('menuSelected', { item }));
       });
     }
   };
@@ -889,7 +907,7 @@ export default function HomeScreen() {
               styles.tabText,
               activeTab === 'scheduled' && { color: colors.tint },
             ]}>
-            Upcoming
+            {t('tabBarText.upcoming')}
           </ThemedText>
         </TouchableOpacity>
         <TouchableOpacity
@@ -906,7 +924,7 @@ export default function HomeScreen() {
               styles.tabText,
               activeTab === 'archived' && { color: colors.tint },
             ]}>
-            Past
+            {t('tabBarText.past')}
           </ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -935,7 +953,7 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <ThemedView style={styles.emptyContainer}>
               <ThemedText style={styles.emptyText}>
-                No upcoming notifications
+                {t('emptyStates.noUpcomingNotifications')}
               </ThemedText>
             </ThemedView>
           }
@@ -964,7 +982,7 @@ export default function HomeScreen() {
           ListEmptyComponent={
             <ThemedView style={styles.emptyContainer}>
               <ThemedText style={styles.emptyText}>
-                No sent notifications
+                {t('emptyStates.noSentNotifications')}
               </ThemedText>
             </ThemedView>
           }

@@ -3,7 +3,8 @@ import { CalendarChangeModal } from '@/components/calendar-change-modal';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ChangedCalendarEvent, checkCalendarEventChanges } from '@/utils/calendar-check';
 import { calendarCheckEvents } from '@/utils/calendar-check-events';
-import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, getScheduledNotificationData, initDatabase, insertRepeatOccurrence, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
+import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, getAppLanguage, getScheduledNotificationData, initDatabase, insertRepeatOccurrence, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
+import { I18nProvider, initI18n } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
@@ -17,6 +18,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { KeyboardProvider } from "react-native-keyboard-controller";
 import 'react-native-reanimated';
 import ToastManager from 'toastify-react-native';
+import appJson from '../app.json';
 
 const LOG_FILE = 'app/_layout.tsx';
 
@@ -37,6 +39,10 @@ export default function RootLayout() {
   const [changedEvents, setChangedEvents] = useState<ChangedCalendarEvent[]>([]);
   const [showCalendarChangeModal, setShowCalendarChangeModal] = useState(false);
   const lastCheckTimeRef = useRef<number>(0);
+  const [i18nLoaded, setI18nLoaded] = useState(false);
+  const [i18nLang, setI18nLang] = useState<string>('en');
+  const [i18nVersion, setI18nVersion] = useState<string>('1.0.0');
+  const [i18nPack, setI18nPack] = useState<any>(null);
   const [loaded] = useFonts({
     InterRegular: require('../assets/fonts/Inter_18pt-Regular.ttf'),
     InterItalic: require('../assets/fonts/Inter_18pt-Italic.ttf'),
@@ -245,11 +251,37 @@ export default function RootLayout() {
   useEffect(() => {
     const init = async () => {
       try {
+        // Step 1: Initialize database
         await initDatabase();
+
+        // Step 2: Get language from database
+        const lang = await getAppLanguage();
+
+        // Step 3: Get version from app.json
+        const version = appJson.expo.version || '1.0.0';
+
+        // Step 4: Load language pack
+        const pack = await initI18n(lang, version);
+
+        // Step 5: Set i18n state
+        setI18nLang(lang);
+        setI18nVersion(version);
+        setI18nPack(pack);
+        setI18nLoaded(true);
+
+        logger.info(makeLogHeader(LOG_FILE, 'init'), `i18n initialized: lang=${lang}, version=${version}`);
+
         // Don't perform calendar check on app startup - it can cause hangs
         // Calendar check will happen on app focus and screen refresh instead
       } catch (e) {
-        logger.error(makeLogHeader(LOG_FILE, 'init'), 'Failed to initialize database:', e);
+        logger.error(makeLogHeader(LOG_FILE, 'init'), 'Failed to initialize database/i18n:', e);
+        // Set defaults on error to allow app to continue
+        const version = appJson.expo.version || '1.0.0';
+        const pack = await initI18n('en', version);
+        setI18nLang('en');
+        setI18nVersion(version);
+        setI18nPack(pack);
+        setI18nLoaded(true);
       }
     };
 
@@ -307,46 +339,48 @@ export default function RootLayout() {
 
 
   useEffect(() => {
-    if (loaded) {
+    if (loaded && i18nLoaded) {
       SplashScreen.hideAsync();
     }
-  }, [loaded]);
+  }, [loaded, i18nLoaded]);
 
-  if (!loaded) {
+  if (!loaded || !i18nLoaded || !i18nPack) {
     return null;
   }
 
   return (
-    <KeyboardProvider>
-      <AppearanceProvider>
-        <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-            <Stack.Screen
-              name="schedule/[formId]"
-              options={{
-                headerShown: false,
-                presentation: 'card',
-              }}
+    <I18nProvider lang={i18nLang} version={i18nVersion} pack={i18nPack}>
+      <KeyboardProvider>
+        <AppearanceProvider>
+          <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+              <Stack.Screen
+                name="schedule/[formId]"
+                options={{
+                  headerShown: false,
+                  presentation: 'card',
+                }}
+              />
+              <Stack.Screen
+                name="notification-display"
+                options={{
+                  presentation: 'modal',
+                  title: 'Notification', // This is a screen title, not user-facing text that needs i18n
+                  headerShown: true,
+                }}
+              />
+            </Stack>
+            <StatusBar style="auto" />
+            <ToastManager />
+            <CalendarChangeModal
+              visible={showCalendarChangeModal}
+              changedEvents={changedEvents}
+              onClose={() => setShowCalendarChangeModal(false)}
             />
-            <Stack.Screen
-              name="notification-display"
-              options={{
-                presentation: 'modal',
-                title: 'Notification',
-                headerShown: true,
-              }}
-            />
-          </Stack>
-          <StatusBar style="auto" />
-          <ToastManager />
-          <CalendarChangeModal
-            visible={showCalendarChangeModal}
-            changedEvents={changedEvents}
-            onClose={() => setShowCalendarChangeModal(false)}
-          />
-        </ThemeProvider>
-      </AppearanceProvider>
-    </KeyboardProvider>
+          </ThemeProvider>
+        </AppearanceProvider>
+      </KeyboardProvider>
+    </I18nProvider>
   );
 }

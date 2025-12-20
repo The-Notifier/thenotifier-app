@@ -11,6 +11,7 @@ import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { checkCalendarEventChanges } from '@/utils/calendar-check';
 import { checkUpcomingNotificationForCalendarEvent, getAllCalendarSelections, saveCalendarSelections } from '@/utils/database';
+import { useT } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { getPermissionInstructions } from '@/utils/permissions';
 
@@ -46,6 +47,7 @@ export default function CalendarScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
 
   useEffect(() => {
     let mounted = true;
@@ -106,9 +108,9 @@ export default function CalendarScreen() {
           const { status } = await Calendar.getCalendarPermissionsAsync();
           if (status === 'denied') {
             Alert.alert(
-              'Calendar Permission Required',
+              t('alertTitles.calendarPermissionRequired'),
               getPermissionInstructions('calendar'),
-              [{ text: 'OK' }]
+              [{ text: t('buttonText.ok') }]
             );
           }
         } catch (error) {
@@ -159,9 +161,9 @@ export default function CalendarScreen() {
         error?.code === 'MissingCalendarPListValueException') {
         setPermissionStatus('denied');
         Alert.alert(
-          'Configuration Required',
-          'Calendar permissions need to be configured. Please rebuild the app:\n\n1. Stop the current app\n2. Run: npx expo prebuild --clean\n3. Rebuild and run the app',
-          [{ text: 'OK' }]
+          t('alertTitles.configurationRequired'),
+          t('alertMessages.configurationRequired'),
+          [{ text: t('buttonText.ok') }]
         );
       } else {
         // For other errors, try requesting permission directly
@@ -186,14 +188,14 @@ export default function CalendarScreen() {
         await loadCalendars();
       } else if (status === 'denied') {
         Alert.alert(
-          'Permission Required',
-          'Please enable calendar access in your device settings.',
+          t('alertTitles.permissionRequired'),
+          t('alertMessages.permissionRequired'),
           [
-            { text: 'Cancel', style: 'cancel' },
+            { text: t('buttonText.cancel'), style: 'cancel' },
             {
-              text: 'Open Settings', onPress: () => {
+              text: t('alertTitles.settings'), onPress: () => {
                 // On iOS, we can't directly open settings, but the user can do it manually
-                Alert.alert('Settings', 'Please go to Settings > The Notifier > Calendar and enable access.');
+                Alert.alert(t('alertTitles.settings'), t('alertMessages.settingsInstructions'));
               }
             }
           ]
@@ -204,11 +206,11 @@ export default function CalendarScreen() {
       // Don't show alert on MissingCalendarPListValueException - it's a configuration issue
       if (error?.message?.includes('MissingCalendarPListValueException')) {
         Alert.alert(
-          'Configuration Error',
-          'Calendar permissions are not properly configured. Please rebuild the app after adding calendar permissions to Info.plist.'
+          t('alertTitles.configurationError'),
+          t('alertMessages.configurationError')
         );
       } else {
-        Alert.alert('Error', 'Failed to request calendar permissions');
+        Alert.alert(t('alertTitles.error'), t('alertMessages.failedToRequestCalendarPermissions'));
       }
       setPermissionStatus('denied');
     }
@@ -249,7 +251,7 @@ export default function CalendarScreen() {
       }
     } catch (error) {
       logger.error(makeLogHeader(LOG_FILE, 'loadCalendars'), 'Failed to load calendars:', error);
-      Alert.alert('Error', 'Failed to load calendars');
+      Alert.alert(t('alertTitles.error'), t('alertMessages.failedToLoadCalendars'));
     }
   };
 
@@ -451,18 +453,18 @@ export default function CalendarScreen() {
     if (hasUpcomingNotification) {
       // Show alert asking if user wants to create another notification
       Alert.alert(
-        'Existing Notification',
-        "There's an upcoming notification for this. Do you want to create another one?",
+        t('alertTitles.existingNotification'),
+        t('alertMessages.existingNotificationMessage'),
         [
           {
-            text: 'No',
+            text: t('buttonText.cancel'),
             style: 'cancel',
             onPress: () => {
               // Do nothing, remain on calendar screen
             },
           },
           {
-            text: 'Yes',
+            text: t('buttonText.ok'),
             onPress: () => {
               // Proceed with navigation
               navigateToScheduleScreen(event);
@@ -632,7 +634,7 @@ export default function CalendarScreen() {
             {item.location && (
               <ThemedView style={styles.detailRow}>
                 <ThemedText type="subtitle" maxFontSizeMultiplier={1.6} style={styles.detailLabel}>
-                  Location:
+                  {t('detailLabels.location')}
                 </ThemedText>
                 <ThemedText
                   maxFontSizeMultiplier={1.6}
@@ -681,7 +683,7 @@ export default function CalendarScreen() {
                     }
                   }
                 }}>
-                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.buttonText }]}>Schedule Notification</ThemedText>
+                <ThemedText maxFontSizeMultiplier={1.4} style={[styles.actionButtonText, { color: colors.buttonText }]}>{t('buttonText.scheduleNotification')}</ThemedText>
               </TouchableOpacity>
             </ThemedView>
           </ThemedView>
@@ -696,10 +698,10 @@ export default function CalendarScreen() {
     return (
       <ThemedView style={styles.container}>
         <ThemedView style={styles.header}>
-          <ThemedText type="title" maxFontSizeMultiplier={1.6}>Calendar Events</ThemedText>
+          <ThemedText type="title" maxFontSizeMultiplier={1.6}>{t('calendarScreen.calendarEvents')}</ThemedText>
         </ThemedView>
         <ThemedView style={styles.emptyContainer}>
-          <ThemedText maxFontSizeMultiplier={1.6} style={styles.emptyText}>Checking calendar permissions...</ThemedText>
+          <ThemedText maxFontSizeMultiplier={1.6} style={styles.emptyText}>{t('emptyStates.checkingCalendarPermissions')}</ThemedText>
         </ThemedView>
       </ThemedView>
     );
@@ -712,12 +714,12 @@ export default function CalendarScreen() {
           {/* <ThemedText type="title">Calendar Events</ThemedText> */}
         </ThemedView>
         <ThemedView style={styles.emptyContainer}>
-          <ThemedText maxFontSizeMultiplier={1.6} style={styles.emptyText}>(Permission denied)</ThemedText>
+          <ThemedText maxFontSizeMultiplier={1.6} style={styles.emptyText}>{t('emptyStates.permissionDenied')}</ThemedText>
           <TouchableOpacity
             style={[styles.calendarButton, { backgroundColor: '#499f5d', marginTop: 20 }]}
             onPress={requestCalendarPermissions}
             activeOpacity={0.7}>
-            <ThemedText maxFontSizeMultiplier={1.6} style={styles.calendarButtonText}>Request Calendar Access</ThemedText>
+            <ThemedText maxFontSizeMultiplier={1.6} style={styles.calendarButtonText}>{t('buttonText.requestCalendarAccess')}</ThemedText>
           </TouchableOpacity>
         </ThemedView>
       </ThemedView>
@@ -737,7 +739,7 @@ export default function CalendarScreen() {
           <ThemedText
             maxFontSizeMultiplier={1.6}
             style={[styles.calendarButtonText, { color: colors.buttonText }]}>
-            {showCalendarSelection ? 'Hide Calendar List' : 'Select Calendars'}
+            {showCalendarSelection ? t('buttonText.hideCalendarList') : t('buttonText.selectCalendars')}
           </ThemedText>
         </TouchableOpacity>
       </ThemedView>
@@ -771,8 +773,8 @@ export default function CalendarScreen() {
         <ThemedView style={styles.emptyContainer}>
           <ThemedText maxFontSizeMultiplier={1.6} style={styles.emptyText}>
             {selectedCalendarIds.size === 0
-              ? 'Select calendars to view events'
-              : 'No events found for the next 30 days'}
+              ? t('emptyStates.selectCalendarsToViewEvents')
+              : t('emptyStates.noEventsFound')}
           </ThemedText>
         </ThemedView>
       ) : (

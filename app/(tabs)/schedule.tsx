@@ -5,6 +5,7 @@ import { useCallback } from 'react';
 import { ScheduleForm } from '@/components/scheduleForm';
 import { Colors } from '@/constants/theme';
 import { useColorScheme } from '@/hooks/use-color-scheme';
+import { useT } from '@/utils/i18n';
 import { Toast } from 'toastify-react-native';
 
 
@@ -12,6 +13,7 @@ export default function ScheduleTabScreen() {
   const router = useRouter();
   const colorScheme = useColorScheme();
   const colors = Colors[colorScheme ?? 'light'];
+  const t = useT();
 
 
   // Reset form when screen is focused (clear any stale params)
@@ -26,7 +28,7 @@ export default function ScheduleTabScreen() {
     // Form handles its own success message
     Toast.show({
       type: 'success',
-      text1: 'Your notification has been scheduled!',
+      text1: t('toastMessages.notificationScheduled'),
       position: 'center',
       visibilityTime: 3000,
       autoHide: true,

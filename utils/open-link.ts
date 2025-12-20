@@ -9,7 +9,8 @@ const LOG_FILE = 'utils/open-link.ts';
  * For calendar event links, attempts to open the native calendar app with the event.
  * For regular URLs, opens them using the system's default handler.
  */
-export async function openNotifierLink(link: string): Promise<void> {
+export async function openNotifierLink(link: string, t?: (key: string) => string): Promise<void> {
+  const getText = (key: string) => t ? t(key) : key;
   if (!link) return;
 
   // Check if this is a calendar event link
@@ -57,27 +58,27 @@ export async function openNotifierLink(link: string): Promise<void> {
               const event = events.find(e => e.id === eventId);
               if (event) {
                 Alert.alert(
-                  'Calendar Event',
+                  getText('alertTitles.menu'),
                   `Event: ${event.title || 'Untitled'}\n\nTo view this event, please open your calendar app.`,
-                  [{ text: 'OK' }]
+                  [{ text: getText('buttonText.ok') }]
                 );
               } else {
-                Alert.alert('Error', 'Calendar event not found. Please check your calendar app.');
+                Alert.alert(getText('alertTitles.error'), getText('errorMessages.calendarEventNotFound'));
               }
             }
           } else {
-            Alert.alert('Error', 'Unable to generate calendar link for this platform.');
+            Alert.alert(getText('alertTitles.error'), getText('errorMessages.unableToGenerateCalendarLink'));
           }
         } catch (error) {
           logger.error(makeLogHeader(LOG_FILE, 'openNotifierLink'), 'Failed to open calendar event:', error);
-          Alert.alert('Error', 'Unable to open calendar event. Please open your calendar app manually.');
+          Alert.alert(getText('alertTitles.error'), getText('errorMessages.unableToOpenCalendarEvent'));
         }
       } else {
-        Alert.alert('Error', 'Invalid calendar event link');
+        Alert.alert(getText('alertTitles.error'), getText('errorMessages.invalidCalendarEventLink'));
       }
     } catch (error) {
       logger.error(makeLogHeader(LOG_FILE, 'openNotifierLink'), 'Failed to parse calendar link:', error);
-      Alert.alert('Error', 'Invalid link format');
+      Alert.alert(getText('alertTitles.error'), getText('errorMessages.invalidLinkFormat'));
     }
   } else {
     // Regular URL - try to open it
@@ -86,11 +87,11 @@ export async function openNotifierLink(link: string): Promise<void> {
       if (canOpen) {
         await Linking.openURL(link);
       } else {
-        Alert.alert('Error', 'Unable to open this link');
+        Alert.alert(getText('alertTitles.error'), getText('errorMessages.unableToOpenLink'));
       }
     } catch (error) {
       logger.error(makeLogHeader(LOG_FILE, 'openNotifierLink'), 'Failed to open URL:', error);
-      Alert.alert('Error', 'Unable to open link');
+      Alert.alert(getText('alertTitles.error'), getText('errorMessages.unableToOpenLinkGeneric'));
     }
   }
 }
