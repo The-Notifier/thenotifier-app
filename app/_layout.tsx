@@ -3,7 +3,7 @@ import { CalendarChangeModal } from '@/components/calendar-change-modal';
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { ChangedCalendarEvent, checkCalendarEventChanges } from '@/utils/calendar-check';
 import { calendarCheckEvents } from '@/utils/calendar-check-events';
-import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, getAppLanguage, getScheduledNotificationData, initDatabase, insertRepeatOccurrence, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
+import { archiveScheduledNotifications, ensureDailyAlarmWindowForAllNotifications, ensureRollingWindowNotificationInstances, getAppLanguage, getOrCreateDeviceId, getScheduledNotificationData, initDatabase, insertRepeatOccurrence, migrateRollingWindowRepeatsToExpo, updateArchivedNotificationData } from '@/utils/database';
 import { I18nProvider, initI18n } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
@@ -21,6 +21,7 @@ import ToastManager from 'toastify-react-native';
 import appJson from '../app.json';
 import { reconcilePermissionsOnForeground } from '@/utils/permission-reconcile';
 import { translate } from '@/utils/i18n';
+import { ensurePushTokensUpToDate } from '@/utils/push-tokens';
 import { NativeAlarmManager } from 'rn-native-alarmkit';
 
 const LOG_FILE = 'app/_layout.tsx';
@@ -257,6 +258,14 @@ export default function RootLayout() {
         // Step 1: Initialize database
         await initDatabase();
 
+        // Step 1.5: Ensure device ID exists and push tokens are up to date
+        await getOrCreateDeviceId().catch((error) => {
+          logger.error(makeLogHeader(LOG_FILE, 'init'), 'Failed to get or create device ID:', error);
+        });
+        await ensurePushTokensUpToDate().catch((error) => {
+          logger.error(makeLogHeader(LOG_FILE, 'init'), 'Failed to ensure push tokens up to date:', error);
+        });
+
         // Step 2: Get language from database
         const lang = await getAppLanguage();
 
@@ -316,6 +325,11 @@ export default function RootLayout() {
             logger.error(makeLogHeader(LOG_FILE), 'Failed to reconcile permissions:', error);
           });
         }
+
+        // Ensure push tokens are up to date (handles permission revoke/restore)
+        await ensurePushTokensUpToDate().catch((error) => {
+          logger.error(makeLogHeader(LOG_FILE), 'Failed to ensure push tokens up to date on foreground:', error);
+        });
 
         // Check current permissions for gating replenishers
         let notificationPermissionGranted = false;
