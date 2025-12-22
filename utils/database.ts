@@ -350,6 +350,25 @@ export const initDatabase = async () => {
       CREATE INDEX IF NOT EXISTS idx_repeatNotificationOccurrence_fireDateTime ON repeatNotificationOccurrence (fireDateTime);
     `);
 
+    // Create pushToken table if it doesn't exist (single-row table for device ID and push tokens)
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS pushToken (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        deviceId TEXT NOT NULL,
+        expoPushToken TEXT DEFAULT NULL,
+        devicePushToken TEXT DEFAULT NULL,
+        devicePushTokenType TEXT DEFAULT NULL,
+        lastGeneratedAt TEXT DEFAULT NULL,
+        updatedAt TEXT DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Insert default row if it doesn't exist (will be populated with deviceId on first use)
+    await db.execAsync(`
+      INSERT OR IGNORE INTO pushToken (id, deviceId, updatedAt)
+      VALUES (1, '', CURRENT_TIMESTAMP);
+    `);
+
     isInitialized = true;
     logger.info(makeLogHeader(LOG_FILE, 'initDatabase'), 'Database initialized successfully');
   } catch (error: any) {
@@ -1952,7 +1971,7 @@ export const scheduleDailyAlarmWindow = async (
       };
 
       const alarmResult = await NativeAlarmManager.scheduleAlarm(
-        alarmSchedule,
+        alarmSchedule as any, // Type assertion: native code accepts number timestamps (types will be patched)
         {
           title: alarmConfig.title,
           color: alarmConfig.color || '#8ddaff',
@@ -2274,6 +2293,127 @@ export const setAppLanguage = async (lang: string): Promise<void> => {
   } catch (error: any) {
     logger.error(makeLogHeader(LOG_FILE, 'setAppLanguage'), 'Failed to save app language:', error);
     throw new Error(`Failed to save app language: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Push Token CRUD operations
+
+// Get or create device ID (UUID)
+export const getOrCreateDeviceId = async (): Promise<string> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{ deviceId: string }>(
+      `SELECT deviceId FROM pushToken WHERE id = 1;`
+    );
+
+    if (result && result.deviceId && result.deviceId.trim() !== '') {
+      return result.deviceId;
+    }
+
+    // Generate new UUID
+    const deviceId = Crypto.randomUUID();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+    await db.execAsync(
+      `INSERT OR REPLACE INTO pushToken (id, deviceId, updatedAt)
+      VALUES (1, '${escapeSql(deviceId)}', CURRENT_TIMESTAMP);`
+    );
+    logger.info(makeLogHeader(LOG_FILE, 'getOrCreateDeviceId'), `Device ID generated: ${deviceId}`);
+    return deviceId;
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'getOrCreateDeviceId'), 'Failed to get or create device ID:', error);
+    throw new Error(`Failed to get or create device ID: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Get push tokens
+export const getPushTokens = async (): Promise<{
+  deviceId: string;
+  expoPushToken?: string | null;
+  devicePushToken?: string | null;
+  devicePushTokenType?: string | null;
+  lastGeneratedAt?: string | null;
+} | null> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const result = await db.getFirstAsync<{
+      deviceId: string;
+      expoPushToken: string | null;
+      devicePushToken: string | null;
+      devicePushTokenType: string | null;
+      lastGeneratedAt: string | null;
+    }>(
+      `SELECT deviceId, expoPushToken, devicePushToken, devicePushTokenType, lastGeneratedAt FROM pushToken WHERE id = 1;`
+    );
+    return result || null;
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'getPushTokens'), 'Failed to get push tokens:', error);
+    return null;
+  }
+};
+
+// Upsert push tokens (preserves deviceId)
+export const upsertPushTokens = async (tokens: {
+  expoPushToken?: string | null;
+  devicePushToken?: string | null;
+  devicePushTokenType?: string | null;
+}): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+
+    // Get existing deviceId to preserve it
+    const existing = await db.getFirstAsync<{ deviceId: string }>(
+      `SELECT deviceId FROM pushToken WHERE id = 1;`
+    );
+
+    if (!existing || !existing.deviceId || existing.deviceId.trim() === '') {
+      // If deviceId doesn't exist, generate one
+      const deviceId = Crypto.randomUUID();
+      await db.execAsync(
+        `INSERT OR REPLACE INTO pushToken (id, deviceId, expoPushToken, devicePushToken, devicePushTokenType, lastGeneratedAt, updatedAt)
+        VALUES (1, '${escapeSql(deviceId)}', ${tokens.expoPushToken ? `'${escapeSql(tokens.expoPushToken)}'` : 'NULL'}, ${tokens.devicePushToken ? `'${escapeSql(tokens.devicePushToken)}'` : 'NULL'}, ${tokens.devicePushTokenType ? `'${escapeSql(tokens.devicePushTokenType)}'` : 'NULL'}, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);`
+      );
+      logger.info(makeLogHeader(LOG_FILE, 'upsertPushTokens'), `Push tokens saved with new device ID: ${deviceId}`);
+    } else {
+      // Preserve existing deviceId
+      await db.execAsync(
+        `UPDATE pushToken 
+        SET expoPushToken = ${tokens.expoPushToken ? `'${escapeSql(tokens.expoPushToken)}'` : 'NULL'},
+            devicePushToken = ${tokens.devicePushToken ? `'${escapeSql(tokens.devicePushToken)}'` : 'NULL'},
+            devicePushTokenType = ${tokens.devicePushTokenType ? `'${escapeSql(tokens.devicePushTokenType)}'` : 'NULL'},
+            lastGeneratedAt = CURRENT_TIMESTAMP,
+            updatedAt = CURRENT_TIMESTAMP
+        WHERE id = 1;`
+      );
+      logger.info(makeLogHeader(LOG_FILE, 'upsertPushTokens'), 'Push tokens updated');
+    }
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'upsertPushTokens'), 'Failed to upsert push tokens:', error);
+    throw new Error(`Failed to upsert push tokens: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+// Clear push tokens (preserves deviceId)
+export const clearPushTokens = async (): Promise<void> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+    await db.execAsync(
+      `UPDATE pushToken 
+      SET expoPushToken = NULL,
+          devicePushToken = NULL,
+          devicePushTokenType = NULL,
+          lastGeneratedAt = NULL,
+          updatedAt = CURRENT_TIMESTAMP
+      WHERE id = 1;`
+    );
+    logger.info(makeLogHeader(LOG_FILE, 'clearPushTokens'), 'Push tokens cleared (deviceId preserved)');
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'clearPushTokens'), 'Failed to clear push tokens:', error);
+    throw new Error(`Failed to clear push tokens: ${error instanceof Error ? error.message : String(error)}`);
   }
 };
 
