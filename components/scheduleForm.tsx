@@ -14,6 +14,12 @@ import { archiveScheduledNotifications, deleteScheduledNotification, getAlarmPer
 import { useT } from '@/utils/i18n';
 import { logger, makeLogHeader } from '@/utils/logger';
 import { getPermissionInstructions } from '@/utils/permissions';
+import {
+  mapJsWeekdayToExpoWeekday,
+  mapJsMonthToExpoMonth,
+  isNextDailyOccurrence,
+  isNextWeeklyOccurrence,
+} from '@/utils/repeat-start-date';
 import * as Crypto from 'expo-crypto';
 import { DefaultKeyboardToolbarTheme, KeyboardAwareScrollView, KeyboardToolbar, KeyboardToolbarProps } from 'react-native-keyboard-controller';
 
@@ -907,16 +913,16 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       const dayOfWeek = dateWithoutSeconds.getDay();
       const month = dateWithoutSeconds.getMonth();
 
+      // Map to Expo format
+      const expoWeekday = mapJsWeekdayToExpoWeekday(dayOfWeek);
+      const expoMonth = mapJsMonthToExpoMonth(month);
+
       const now = new Date();
       const nowMs = now.getTime();
       const selectedMs = dateWithoutSeconds.getTime();
       const diffMs = selectedMs - nowMs;
       const diffHours = diffMs / (60 * 60 * 1000);
       const diffDays = diffMs / (24 * 60 * 60 * 1000);
-
-      // Thresholds in milliseconds
-      const oneDayMs = 24 * 60 * 60 * 1000;
-      const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
 
       // Calendar-based thresholds for monthly/yearly
       const oneMonthFromNow = new Date(now);
@@ -928,12 +934,17 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
       logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Decision inputs:', {
         nowISO: now.toISOString(),
         selectedISO: dateWithoutSeconds.toISOString(),
+        selectedLocal: dateWithoutSeconds.toLocaleString(),
         diffMs: diffMs,
         diffHours: diffHours.toFixed(2),
         diffDays: diffDays.toFixed(2),
         repeatOption: repeatOption,
-        oneDayThresholdMs: oneDayMs,
-        oneWeekThresholdMs: oneWeekMs,
+        hour: hour,
+        minute: minute,
+        jsWeekday: dayOfWeek,
+        expoWeekday: expoWeekday,
+        jsMonth: month,
+        expoMonth: expoMonth,
         oneMonthFromNowISO: oneMonthFromNow.toISOString(),
         oneYearFromNowISO: oneYearFromNow.toISOString(),
       });
@@ -947,57 +958,73 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
           logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] One-time notification, using DATE trigger');
           break;
         case 'daily':
-          // Use milliseconds-based comparison for daily
-          if (diffMs >= oneDayMs) {
-            // Use rolling window
-            useRollingWindow = true;
-            notificationTrigger = {
-              type: 'DATE_WINDOW' as any,
-              window: 'daily14',
-            } as any;
-            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Daily repeat: using rollingWindow (diffMs >= 24h)', {
-              diffMs: diffMs,
-              thresholdMs: oneDayMs,
-              windowSize: 14,
-            });
-          } else {
-            // Use existing DAILY trigger
+          // Check if selected begin date matches the next daily occurrence
+          // Only use Expo DAILY trigger if the first fire will be exactly on the selected date
+          const isNextDaily = isNextDailyOccurrence(dateWithoutSeconds, hour, minute);
+          
+          if (isNextDaily) {
+            // Use Expo DAILY trigger - it will fire at the selected time
             notificationTrigger = {
               type: Notifications.SchedulableTriggerInputTypes.DAILY,
               hour: hour,
               minute: minute,
             };
-            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Daily repeat: using Expo DAILY trigger (diffMs < 24h)', {
+            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Daily repeat: using Expo DAILY trigger (selected date matches next occurrence)', {
+              selectedISO: dateWithoutSeconds.toISOString(),
+              hour: hour,
+              minute: minute,
+            });
+          } else {
+            // Use rolling window to ensure first fire is exactly on selected date
+            useRollingWindow = true;
+            notificationTrigger = {
+              type: 'DATE_WINDOW' as any,
+              window: 'daily14',
+            } as any;
+            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Daily repeat: using rollingWindow (selected date does not match next occurrence)', {
+              selectedISO: dateWithoutSeconds.toISOString(),
+              hour: hour,
+              minute: minute,
               diffMs: diffMs,
-              thresholdMs: oneDayMs,
+              windowSize: 14,
             });
           }
           break;
         case 'weekly':
-          // Use milliseconds-based comparison for weekly
-          if (diffMs >= oneWeekMs) {
-            // Use rolling window
+          // Check if selected begin date matches the next weekly occurrence
+          // Only use Expo WEEKLY trigger if the first fire will be exactly on the selected date
+          const isNextWeekly = isNextWeeklyOccurrence(dateWithoutSeconds, expoWeekday, hour, minute);
+          
+          if (isNextWeekly) {
+            // Use Expo WEEKLY trigger - it will fire at the selected time
+            notificationTrigger = {
+              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
+              weekday: expoWeekday,
+              hour: hour,
+              minute: minute,
+            };
+            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Weekly repeat: using Expo WEEKLY trigger (selected date matches next occurrence)', {
+              selectedISO: dateWithoutSeconds.toISOString(),
+              jsWeekday: dayOfWeek,
+              expoWeekday: expoWeekday,
+              hour: hour,
+              minute: minute,
+            });
+          } else {
+            // Use rolling window to ensure first fire is exactly on selected date
             useRollingWindow = true;
             notificationTrigger = {
               type: 'DATE_WINDOW' as any,
               window: 'weekly4',
             } as any;
-            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Weekly repeat: using rollingWindow (diffMs >= 7d)', {
-              diffMs: diffMs,
-              thresholdMs: oneWeekMs,
-              windowSize: 4,
-            });
-          } else {
-            // Use existing WEEKLY trigger
-            notificationTrigger = {
-              type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-              weekday: dayOfWeek,
+            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Weekly repeat: using rollingWindow (selected date does not match next occurrence)', {
+              selectedISO: dateWithoutSeconds.toISOString(),
+              jsWeekday: dayOfWeek,
+              expoWeekday: expoWeekday,
               hour: hour,
               minute: minute,
-            };
-            logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Weekly repeat: using Expo WEEKLY trigger (diffMs < 7d)', {
               diffMs: diffMs,
-              thresholdMs: oneWeekMs,
+              windowSize: 4,
             });
           }
           break;
@@ -1046,10 +1073,10 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
               windowSize: 2,
             });
           } else {
-            // Use existing YEARLY trigger
+            // Use existing YEARLY trigger with corrected month mapping
             notificationTrigger = {
               type: Notifications.SchedulableTriggerInputTypes.YEARLY,
-              month: month,
+              month: expoMonth,
               day: day,
               hour: hour,
               minute: minute,
@@ -1057,16 +1084,30 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
             logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Yearly repeat: using Expo YEARLY trigger (selected < oneYearFromNow)', {
               selectedISO: dateWithoutSeconds.toISOString(),
               oneYearFromNowISO: oneYearFromNow.toISOString(),
+              jsMonth: month,
+              expoMonth: expoMonth,
             });
           }
           break;
       }
 
-      // Log final decision
+      // Log final decision with begin-date correctness details
       logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[RepeatDecision] Final decision:', {
         useRollingWindow: useRollingWindow,
         notificationTriggerType: (notificationTrigger as any).type,
         repeatOption: repeatOption,
+        selectedBeginDateISO: dateWithoutSeconds.toISOString(),
+        selectedBeginDateLocal: dateWithoutSeconds.toLocaleString(),
+        hour: hour,
+        minute: minute,
+        ...(repeatOption === 'weekly' && {
+          jsWeekday: dayOfWeek,
+          expoWeekday: expoWeekday,
+        }),
+        ...(repeatOption === 'yearly' && {
+          jsMonth: month,
+          expoMonth: expoMonth,
+        }),
       });
 
       if (useRollingWindow) {
@@ -1341,7 +1382,10 @@ export function ScheduleForm({ initialParams, isEditMode, source = 'schedule', o
 
               // Add repeat-specific fields
               if (repeatOption === 'weekly') {
+                // AlarmKit uses JS weekday format (0-6, Sunday=0) based on code patterns
+                // Keep using dayOfWeek (JS format) for AlarmKit
                 alarmSchedule.daysOfWeek = [dayOfWeek];
+                logger.info(makeLogHeader(LOG_FILE, 'scheduleNotification'), '[AlarmSchedule] Weekly alarm - JS weekday:', dayOfWeek, 'AlarmKit daysOfWeek:', [dayOfWeek]);
               } else if (repeatOption === 'monthly') {
                 alarmSchedule.dayOfMonth = dayOfMonth;
               } else if (repeatOption === 'yearly') {

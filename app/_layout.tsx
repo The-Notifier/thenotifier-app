@@ -23,6 +23,7 @@ import { reconcilePermissionsOnForeground } from '@/utils/permission-reconcile';
 import { translate } from '@/utils/i18n';
 import { ensurePushTokensUpToDate } from '@/utils/push-tokens';
 import { NativeAlarmManager } from 'rn-native-alarmkit';
+import { reconcileOrphansOnStartup, reconcileOrphansOnForeground } from '@/utils/orphan-reconcile';
 
 const LOG_FILE = 'app/_layout.tsx';
 
@@ -283,6 +284,12 @@ export default function RootLayout() {
 
         logger.info(makeLogHeader(LOG_FILE, 'init'), `i18n initialized: lang=${lang}, version=${version}`);
 
+        // Step 6: Reconcile orphans (detect and remove orphaned notifications/alarms)
+        const t = (key: string) => translate(pack, key);
+        await reconcileOrphansOnStartup(t).catch((error) => {
+          logger.error(makeLogHeader(LOG_FILE, 'init'), 'Failed to reconcile orphans on startup:', error);
+        });
+
         // Don't perform calendar check on app startup - it can cause hangs
         // Calendar check will happen on app focus and screen refresh instead
       } catch (e) {
@@ -323,6 +330,11 @@ export default function RootLayout() {
           const t = (key: string) => translate(i18nPack, key);
           await reconcilePermissionsOnForeground(t).catch((error) => {
             logger.error(makeLogHeader(LOG_FILE), 'Failed to reconcile permissions:', error);
+          });
+
+          // Also reconcile orphans on foreground (lighter variant)
+          await reconcileOrphansOnForeground(t).catch((error) => {
+            logger.error(makeLogHeader(LOG_FILE), 'Failed to reconcile orphans on foreground:', error);
           });
         }
 
