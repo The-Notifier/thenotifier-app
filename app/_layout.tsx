@@ -41,6 +41,9 @@ export default function RootLayout() {
   const responseListener = useRef<EventSubscription | null>(null);
   const lastNotificationResponse = Notifications.useLastNotificationResponse();
   const handledNotificationsRef = useRef<Set<string>>(new Set());
+  const pendingNavTimeoutRef = useRef<NodeJS.Timeout | number | null>(null);
+  const navigationCooldownRef = useRef<Map<string, number>>(new Map());
+  const lastProcessedResponseKeyRef = useRef<string | null>(null);
   const [changedEvents, setChangedEvents] = useState<ChangedCalendarEvent[]>([]);
   const [showCalendarChangeModal, setShowCalendarChangeModal] = useState(false);
   const lastCheckTimeRef = useRef<number>(0);
@@ -66,18 +69,38 @@ export default function RootLayout() {
     logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Action identifier:', actionIdentifier);
 
     const notificationId = notification.request.identifier;
+    const data = notification.request.content.data;
+    
+    // Compute dedupe key: use parent notification ID if available (for repeat notifications),
+    // otherwise fall back to the instance identifier
+    const parentId = (data?.notificationId as string) || null;
+    const dedupeKey = parentId || notificationId;
 
     logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Notification ID:', notificationId);
+    logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Parent ID:', parentId);
+    logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Dedupe key:', dedupeKey);
     logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: App state:', AppState.currentState);
 
-    // Skip if we've already handled this notification
-    if (handledNotificationsRef.current.has(notificationId)) {
-      logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Notification already handled, skipping...');
+    // CRITICAL: Check dedupe key FIRST before any async operations
+    // This prevents multiple calls from processing the same notification
+    if (handledNotificationsRef.current.has(dedupeKey)) {
+      logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Notification already handled (dedupe key), skipping...');
       return;
     }
 
-    // Mark as handled immediately to prevent duplicate processing
+    // Mark as handled IMMEDIATELY (synchronously) to prevent duplicate processing
+    // Do this BEFORE any async operations to prevent race conditions
+    handledNotificationsRef.current.add(dedupeKey);
     handledNotificationsRef.current.add(notificationId);
+
+    // Check cooldown: ignore if we've navigated for this dedupe key within the last 5 seconds
+    // Increased to 5 seconds to be very conservative and prevent any reopen loops
+    const now = Date.now();
+    const lastNavTime = navigationCooldownRef.current.get(dedupeKey);
+    if (lastNavTime && (now - lastNavTime) < 5000) {
+      logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Navigation cooldown active, skipping navigation...');
+      return;
+    }
 
     // Only navigate if user tapped the notification (not dismissed it)
     if (actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
@@ -85,7 +108,6 @@ export default function RootLayout() {
       // Check if we need to archive any scheduled notifications
       await archiveScheduledNotifications();
 
-      const data = notification.request.content.data;
       logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Data:', data);
 
       // Record repeat occurrence if this is a repeating notification
@@ -122,13 +144,29 @@ export default function RootLayout() {
           logger.error(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Failed to update archived notification data:', e);
         }
 
+        // Clear any pending navigation timeout to prevent multiple pushes
+        if (pendingNavTimeoutRef.current) {
+          clearTimeout(pendingNavTimeoutRef.current as NodeJS.Timeout);
+          pendingNavTimeoutRef.current = null;
+          logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Cleared pending navigation timeout');
+        }
+
+        // Update cooldown timestamp BEFORE navigation to prevent rapid re-navigation
+        navigationCooldownRef.current.set(dedupeKey, Date.now());
+
         // Small delay to ensure navigation is ready
-        setTimeout(() => {
+        // On cold start, use a longer delay to ensure router is fully initialized
+        const isColdStart = AppState.currentState === 'active';
+        const navDelay = isColdStart ? 300 : 100;
+        
+        pendingNavTimeoutRef.current = setTimeout(() => {
+          logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Executing router.push to notification-display');
           router.push({
             pathname: '/notification-display',
             params: { title: data.title as string, message: data.message as string, note: data.note as string, link: data.link as string },
           });
-        }, 100);
+          pendingNavTimeoutRef.current = null;
+        }, navDelay);
 
         //   // Wait for app to be active and interactions to complete before navigating
         //   const navigateToNotification = () => {
@@ -170,30 +208,79 @@ export default function RootLayout() {
   }, [router]);
 
   // Check if app was opened from a notification (cold start or background)
+  // IMPORTANT: Only process useLastNotificationResponse once per unique response
+  // This hook persists the last response, so we need to prevent re-processing on re-renders
   useEffect(() => {
     logger.info(makeLogHeader(LOG_FILE), '=== useEffect: lastNotificationResponse changed ===');
     logger.info(makeLogHeader(LOG_FILE), 'lastNotificationResponse:', lastNotificationResponse);
     logger.info(makeLogHeader(LOG_FILE), 'Current app state:', AppState.currentState);
+    logger.info(makeLogHeader(LOG_FILE), 'App initialized?', { loaded, i18nLoaded, hasI18nPack: !!i18nPack });
+
+    // CRITICAL: Wait for app to be fully initialized before processing notification navigation
+    // On cold start, the app needs fonts, i18n, and router to be ready before navigation can succeed
+    if (!loaded || !i18nLoaded || !i18nPack) {
+      logger.info(makeLogHeader(LOG_FILE), 'App not fully initialized yet, deferring notification navigation processing');
+      return;
+    }
 
     if (lastNotificationResponse) {
       const { notification, actionIdentifier } = lastNotificationResponse;
       const notificationId = notification.request.identifier;
+      const data = notification.request.content.data;
+      const parentId = (data?.notificationId as string) || null;
+      const dedupeKey = parentId || notificationId;
+      
+      // Create a unique response key to prevent React rerenders from retriggering
+      // Use notification.date for stable key - this should be consistent across re-renders
+      // If notification.date is not available, use a combination that's stable per notification instance
+      const dateValue = notification.date || notification.request.trigger?.date || 0;
+      const responseKey = `${notificationId}-${actionIdentifier}-${dateValue}`;
+      
       logger.info(makeLogHeader(LOG_FILE), '=== LAST NOTIFICATION RESPONSE DETECTED ===');
       logger.info(makeLogHeader(LOG_FILE), 'Notification ID:', notificationId);
+      logger.info(makeLogHeader(LOG_FILE), 'Parent ID:', parentId);
+      logger.info(makeLogHeader(LOG_FILE), 'Dedupe key:', dedupeKey);
+      logger.info(makeLogHeader(LOG_FILE), 'Response key:', responseKey);
       logger.info(makeLogHeader(LOG_FILE), 'Action identifier:', actionIdentifier);
       logger.info(makeLogHeader(LOG_FILE), 'Notification data:', notification.request.content.data);
-      logger.info(makeLogHeader(LOG_FILE), 'Already handled?', handledNotificationsRef.current.has(notificationId));
+      logger.info(makeLogHeader(LOG_FILE), 'Already handled (dedupe)?', handledNotificationsRef.current.has(dedupeKey));
+      logger.info(makeLogHeader(LOG_FILE), 'Already processed (response key)?', lastProcessedResponseKeyRef.current === responseKey);
 
-      // Only process if we haven't already handled this notification
-      if (!handledNotificationsRef.current.has(notificationId)) {
-        logger.info(makeLogHeader(LOG_FILE), 'Processing lastNotificationResponse - calling handleNotificationNavigation');
-        handleNotificationNavigation(notification, actionIdentifier);
-      } else {
-        logger.info(makeLogHeader(LOG_FILE), 'LastNotificationResponse already handled, skipping');
+      // CRITICAL: Check both response key AND dedupe key to prevent any reprocessing
+      // The response key prevents the same response object from being processed twice
+      // The dedupe key prevents different instances of the same parent notification from triggering navigation
+      const alreadyProcessed = lastProcessedResponseKeyRef.current === responseKey;
+      const alreadyHandled = handledNotificationsRef.current.has(dedupeKey);
+
+      if (alreadyProcessed || alreadyHandled) {
+        logger.info(makeLogHeader(LOG_FILE), `LastNotificationResponse skipped - alreadyProcessed: ${alreadyProcessed}, alreadyHandled: ${alreadyHandled}`);
+        return;
       }
 
+      // Mark as processed AND handled BEFORE calling handleNotificationNavigation to prevent race conditions
+      // This ensures that even if handleNotificationNavigation is async, we won't process this again
+      lastProcessedResponseKeyRef.current = responseKey;
+      handledNotificationsRef.current.add(dedupeKey);
+      handledNotificationsRef.current.add(notificationId);
+      
+      logger.info(makeLogHeader(LOG_FILE), 'Processing lastNotificationResponse - calling handleNotificationNavigation');
+      
+      // On cold start, add a small delay to ensure router is fully ready
+      // This is especially important when app is launched from a notification tap
+      // Check if this is a cold start by seeing if responseListener hasn't been set up yet
+      const isColdStart = !responseListener.current;
+      const delay = isColdStart ? 500 : 0;
+      
+      if (delay > 0) {
+        logger.info(makeLogHeader(LOG_FILE), `Cold start detected, delaying navigation by ${delay}ms`);
+        setTimeout(() => {
+          handleNotificationNavigation(notification, actionIdentifier);
+        }, delay);
+      } else {
+        handleNotificationNavigation(notification, actionIdentifier);
+      }
     }
-  }, [lastNotificationResponse, handleNotificationNavigation]);
+  }, [lastNotificationResponse, handleNotificationNavigation, loaded, i18nLoaded, i18nPack]);
 
   useEffect(() => {
     logger.info(makeLogHeader(LOG_FILE), 'Setting up notification response listener...');
@@ -204,17 +291,23 @@ export default function RootLayout() {
       logger.info(makeLogHeader(LOG_FILE), 'Response:', JSON.stringify(response, null, 2));
       const { notification, actionIdentifier } = response;
       const notificationId = notification.request.identifier;
+      const data = notification.request.content.data;
+      const parentId = (data?.notificationId as string) || null;
+      const dedupeKey = parentId || notificationId;
+      
       logger.info(makeLogHeader(LOG_FILE), 'Notification ID:', notificationId);
+      logger.info(makeLogHeader(LOG_FILE), 'Parent ID:', parentId);
+      logger.info(makeLogHeader(LOG_FILE), 'Dedupe key:', dedupeKey);
       logger.info(makeLogHeader(LOG_FILE), 'Action identifier:', actionIdentifier);
       logger.info(makeLogHeader(LOG_FILE), 'App state:', AppState.currentState);
       logger.info(makeLogHeader(LOG_FILE), 'Notification data:', notification.request.content.data);
 
-      // Only process if we haven't already handled this notification
-      if (!handledNotificationsRef.current.has(notificationId)) {
+      // Only process if we haven't already handled this notification (by dedupe key)
+      if (!handledNotificationsRef.current.has(dedupeKey)) {
         logger.info(makeLogHeader(LOG_FILE), 'Processing notification from listener - calling handleNotificationNavigation');
         handleNotificationNavigation(notification, actionIdentifier);
       } else {
-        logger.info(makeLogHeader(LOG_FILE), 'Notification already handled, skipping');
+        logger.info(makeLogHeader(LOG_FILE), 'Notification already handled (dedupe key), skipping');
       }
     });
     logger.info(makeLogHeader(LOG_FILE), 'Notification response listener set up, listener ref:', responseListener.current);
@@ -224,6 +317,11 @@ export default function RootLayout() {
       if (responseListener.current) {
         responseListener.current.remove();
         responseListener.current = null;
+      }
+      // Clear any pending navigation timeout on cleanup
+      if (pendingNavTimeoutRef.current) {
+        clearTimeout(pendingNavTimeoutRef.current as NodeJS.Timeout);
+        pendingNavTimeoutRef.current = null;
       }
     };
   }, [handleNotificationNavigation]);

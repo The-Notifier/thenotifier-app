@@ -2047,3 +2047,94 @@ After implementing fixes, re-run:
 - Each item maintains its own drawer height measurement
 - No state leakage between items with same numeric ID
 
+---
+
+## Notification Detail Screen Navigation
+
+### Test Case 13.1: System notification tap - daily repeat with alarm (no reopen loop)
+**Objective:** Verify that tapping a system notification for a daily repeat notification with alarm opens the detail screen once and does not reopen after closing
+
+**Prerequisites:**
+- A daily repeat notification with alarm enabled is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the daily repeat notification to fire
+2. Tap the system notification banner/lockscreen notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes
+6. Wait 2-3 seconds
+7. Verify detail screen does NOT reopen automatically
+
+**Expected Results:**
+- Detail screen opens once when notification is tapped
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+- No loop of closing and reopening
+
+---
+
+### Test Case 13.2: System notification tap - weekly repeat with alarm (no reopen loop)
+**Objective:** Verify that tapping a system notification for a weekly repeat notification with alarm does not cause reopen loop
+
+**Prerequisites:**
+- A weekly repeat notification with alarm enabled is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the weekly repeat notification to fire
+2. Tap the system notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Detail screen opens once
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+
+---
+
+### Test Case 13.3: System notification tap - one-time notification (no regression)
+**Objective:** Verify that one-time notifications continue to work correctly (no regression)
+
+**Prerequisites:**
+- A one-time notification (no repeat, no alarm) is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the one-time notification to fire
+2. Tap the system notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Detail screen opens once
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+- Behavior matches previous working state
+
+---
+
+### Test Case 13.4: Multiple notification responses deduplication
+**Objective:** Verify that multiple notification responses for the same parent notification are deduplicated correctly
+
+**Prerequisites:**
+- A daily repeat notification with alarm enabled is scheduled
+- Both notification and alarm fire at the same time (or very close together)
+
+**Steps:**
+1. Wait for the notification and alarm to fire simultaneously
+2. Tap one of the system notifications
+3. Verify detail screen opens once (not multiple times)
+4. Tap Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Only one detail screen opens even if multiple notification responses are received
+- Detail screen closes normally
+- No reopen loop occurs
+- Deduplication works based on parent notification ID, not instance IDs
+
