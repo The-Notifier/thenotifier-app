@@ -44,6 +44,8 @@ export default function RootLayout() {
   const pendingNavTimeoutRef = useRef<NodeJS.Timeout | number | null>(null);
   const navigationCooldownRef = useRef<Map<string, number>>(new Map());
   const lastProcessedResponseKeyRef = useRef<string | null>(null);
+  const awaitingInitialResponseRef = useRef<boolean>(false);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | number | null>(null);
   const [changedEvents, setChangedEvents] = useState<ChangedCalendarEvent[]>([]);
   const [showCalendarChangeModal, setShowCalendarChangeModal] = useState(false);
   const lastCheckTimeRef = useRef<number>(0);
@@ -88,11 +90,6 @@ export default function RootLayout() {
       return;
     }
 
-    // Mark as handled IMMEDIATELY (synchronously) to prevent duplicate processing
-    // Do this BEFORE any async operations to prevent race conditions
-    handledNotificationsRef.current.add(dedupeKey);
-    handledNotificationsRef.current.add(notificationId);
-
     // Check cooldown: ignore if we've navigated for this dedupe key within the last 5 seconds
     // Increased to 5 seconds to be very conservative and prevent any reopen loops
     const now = Date.now();
@@ -104,6 +101,13 @@ export default function RootLayout() {
 
     // Only navigate if user tapped the notification (not dismissed it)
     if (actionIdentifier === Notifications.DEFAULT_ACTION_IDENTIFIER) {
+
+      // Mark as handled NOW - just before we start processing the navigation
+      // This is done here instead of at the top to ensure we don't mark it handled too early
+      // (e.g., before dev menu is dismissed on cold start)
+      handledNotificationsRef.current.add(dedupeKey);
+      handledNotificationsRef.current.add(notificationId);
+      logger.info(makeLogHeader(LOG_FILE, 'handleNotificationNavigation'), 'handleNotificationNavigation: Marked notification as handled');
 
       // Check if we need to archive any scheduled notifications
       await archiveScheduledNotifications();
@@ -157,7 +161,8 @@ export default function RootLayout() {
         // Small delay to ensure navigation is ready
         // On cold start, use router.replace() to override the default (tabs) route
         // On foreground/background, use router.push() for proper modal presentation
-        const navDelay = isColdStart ? 500 : 100;
+        // Increased cold start delay to 1000ms to ensure router is fully committed to initial route
+        const navDelay = isColdStart ? 1000 : 100;
         const navigationMethod = isColdStart ? 'replace' : 'push';
         
         pendingNavTimeoutRef.current = setTimeout(() => {
@@ -232,7 +237,26 @@ export default function RootLayout() {
       return;
     }
 
+    // Detect cold start: responseListener not set up yet
+    const isColdStart = !responseListener.current;
+
+    // If lastNotificationResponse is null and this is a cold start, mark that we're awaiting it
+    // The effect will re-run when lastNotificationResponse becomes available (it's in the dependency array)
+    if (!lastNotificationResponse && isColdStart) {
+      if (!awaitingInitialResponseRef.current) {
+        logger.info(makeLogHeader(LOG_FILE), 'Cold start detected but lastNotificationResponse is null, marking as awaiting initial response');
+        awaitingInitialResponseRef.current = true;
+      }
+      // Effect will re-run when lastNotificationResponse changes from null to a value
+      return;
+    }
+
     if (lastNotificationResponse) {
+      // Clear awaiting flag since we have the response
+      if (awaitingInitialResponseRef.current) {
+        logger.info(makeLogHeader(LOG_FILE), 'lastNotificationResponse now available, processing');
+        awaitingInitialResponseRef.current = false;
+      }
       const { notification, actionIdentifier } = lastNotificationResponse;
       const notificationId = notification.request.identifier;
       const data = notification.request.content.data;
@@ -266,11 +290,10 @@ export default function RootLayout() {
         return;
       }
 
-      // Mark as processed AND handled BEFORE calling handleNotificationNavigation to prevent race conditions
-      // This ensures that even if handleNotificationNavigation is async, we won't process this again
+      // Mark as processed to prevent re-processing of the same response object
+      // But DON'T mark as handled yet - that will be done in handleNotificationNavigation
+      // just before navigation to ensure we don't mark it handled too early (e.g., before dev menu is dismissed)
       lastProcessedResponseKeyRef.current = responseKey;
-      handledNotificationsRef.current.add(dedupeKey);
-      handledNotificationsRef.current.add(notificationId);
       
       logger.info(makeLogHeader(LOG_FILE), 'Processing lastNotificationResponse - calling handleNotificationNavigation');
       
@@ -284,9 +307,10 @@ export default function RootLayout() {
         // Wait for all interactions to complete - this includes dismissing the Expo dev menu
         InteractionManager.runAfterInteractions(() => {
           // Add an additional delay after interactions complete to ensure router is ready
+          // Increased to 1000ms to give more time for notification response to propagate
           setTimeout(() => {
             handleNotificationNavigation(notification, actionIdentifier, true);
-          }, 300);
+          }, 1000);
         });
       } else {
         handleNotificationNavigation(notification, actionIdentifier, false);
@@ -316,9 +340,25 @@ export default function RootLayout() {
 
       // Only process if we haven't already handled this notification (by dedupe key)
       if (!handledNotificationsRef.current.has(dedupeKey)) {
-        logger.info(makeLogHeader(LOG_FILE), 'Processing notification from listener - calling handleNotificationNavigation');
-        // Listener is set up, so this is not a cold start
-        handleNotificationNavigation(notification, actionIdentifier, false);
+        // Check if this is the first response after cold start (fallback case)
+        // If we were awaiting initial response, treat this as cold start navigation
+        const isColdStartFallback = awaitingInitialResponseRef.current;
+        
+        if (isColdStartFallback) {
+          logger.info(makeLogHeader(LOG_FILE), 'Processing notification from listener - COLD START FALLBACK, using router.replace()');
+          awaitingInitialResponseRef.current = false;
+          // Clear any retry polling
+          if (retryTimeoutRef.current) {
+            clearTimeout(retryTimeoutRef.current as NodeJS.Timeout);
+            retryTimeoutRef.current = null;
+          }
+          // Use cold start navigation path
+          handleNotificationNavigation(notification, actionIdentifier, true);
+        } else {
+          logger.info(makeLogHeader(LOG_FILE), 'Processing notification from listener - calling handleNotificationNavigation');
+          // Listener is set up, so this is not a cold start
+          handleNotificationNavigation(notification, actionIdentifier, false);
+        }
       } else {
         logger.info(makeLogHeader(LOG_FILE), 'Notification already handled (dedupe key), skipping');
       }
@@ -336,6 +376,12 @@ export default function RootLayout() {
         clearTimeout(pendingNavTimeoutRef.current as NodeJS.Timeout);
         pendingNavTimeoutRef.current = null;
       }
+      // Clear any retry polling on cleanup
+      if (retryTimeoutRef.current) {
+        clearTimeout(retryTimeoutRef.current as NodeJS.Timeout);
+        retryTimeoutRef.current = null;
+      }
+      awaitingInitialResponseRef.current = false;
     };
   }, [handleNotificationNavigation]);
 

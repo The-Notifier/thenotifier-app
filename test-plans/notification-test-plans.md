@@ -2250,3 +2250,72 @@ After implementing fixes, re-run:
 - User can close detail screen and return to previous screen
 - Behavior matches previous working state
 
+---
+
+### Test Case 14.6: Cold start - notification WITHOUT alarm
+**Objective:** Verify that tapping a notification without alarm on cold start shows detail screen
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITHOUT alarm is scheduled and has fired
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification (without alarm) to fire
+3. Tap the notification banner immediately
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- No home screen flash before detail screen
+
+---
+
+### Test Case 14.7: Cold start - notification WITH alarm (tap banner directly)
+**Objective:** Verify that tapping a notification banner directly (without closing alarm first) on cold start shows detail screen
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITH alarm is scheduled and has fired
+- Alarm is currently showing/active
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification with alarm to fire
+3. Tap the notification banner directly (DO NOT close alarm first)
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- No home screen flash before detail screen
+- Works even when alarm is still active
+
+---
+
+### Test Case 14.8: Cold start - notification WITH alarm (close alarm then tap banner)
+**Objective:** Verify that closing alarm first then tapping notification banner still works (regression test)
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITH alarm is scheduled and has fired
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification with alarm to fire
+3. Close/dismiss the alarm first
+4. Then tap the notification banner
+5. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- Behavior matches previous working state (no regression)
+
