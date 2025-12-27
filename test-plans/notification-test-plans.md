@@ -1396,3 +1396,926 @@ After implementing fixes, re-run:
    - Test with inactive daily alarm instances in DB
    - Test with notifications that have been partially cancelled
 
+---
+
+## Startup Orphan Detection & Auto-Heal Scenarios
+
+### Test Case 9.1: Startup orphan detection - orphaned Expo notification
+**Objective:** Verify that app startup detects and cancels orphaned platform notifications that don't have a DB parent
+
+**Prerequisites:**
+- Schedule a notification via Expo
+- Manually delete the DB row from `scheduledNotification` table (simulating DB corruption or manual deletion)
+
+**Steps:**
+1. Schedule a one-time notification
+2. Verify notification exists in DB (`scheduledNotification` table)
+3. Verify notification is scheduled in Expo (`Notifications.getAllScheduledNotificationsAsync()`)
+4. Manually delete the DB row (using SQL or DB tool)
+5. Restart the app
+
+**Expected Results:**
+- App startup logs: "Starting orphan reconciliation"
+- Orphaned Expo notification is cancelled
+- Log shows: "Cancelled orphaned Expo notification: [identifier]"
+- `Notifications.getAllScheduledNotificationsAsync()` no longer contains the orphaned notification
+- If `orphanReconcileMode === 'alert'`: Alert shown with reconciliation summary
+- If `orphanReconcileMode === 'silent'`: No alert shown (default)
+
+---
+
+### Test Case 9.2: Startup orphan detection - orphaned rolling-window instance
+**Objective:** Verify that app startup detects and cancels orphaned rolling-window notification instances
+
+**Prerequisites:**
+- Schedule a daily rolling-window notification
+- Manually delete the parent DB row but leave instance notifications scheduled
+
+**Steps:**
+1. Schedule a daily rolling-window notification (start >= 24 hours)
+2. Verify multiple DATE notification instances are scheduled
+3. Verify instances exist in `repeatNotificationInstance` table
+4. Manually delete parent from `scheduledNotification` table
+5. Restart the app
+
+**Expected Results:**
+- App startup detects orphaned instances
+- All orphaned rolling-window instances are cancelled
+- `Notifications.getAllScheduledNotificationsAsync()` no longer contains orphaned instances
+- Log shows cancellation of orphaned instances
+
+---
+
+### Test Case 9.3: Startup orphan detection - orphaned daily alarm instance
+**Objective:** Verify that app startup detects and cancels orphaned daily alarm instances
+
+**Prerequisites:**
+- Schedule a daily notification with alarm (using daily window strategy)
+- Manually delete the parent DB row but leave alarm instances scheduled
+
+**Steps:**
+1. Schedule a daily notification with alarm
+2. Verify 14 alarm instances exist in `dailyAlarmInstance` table
+3. Verify alarms are scheduled in AlarmKit
+4. Manually delete parent from `scheduledNotification` table
+5. Restart the app
+
+**Expected Results:**
+- App startup detects orphaned alarm instances
+- All orphaned daily alarm instances are cancelled
+- AlarmKit alarms are cancelled
+- DB `dailyAlarmInstance` rows are marked as cancelled
+- Log shows cancellation of orphaned alarms
+
+---
+
+### Test Case 9.4: Startup auto-heal - missing Expo repeating notification
+**Objective:** Verify that app startup reschedules missing Expo repeating notifications
+
+**Prerequisites:**
+- Schedule a daily Expo repeating notification (`repeatMethod === 'expo'`)
+- Manually cancel the platform notification but keep DB row
+
+**Steps:**
+1. Schedule a daily Expo repeating notification (start < 24 hours)
+2. Verify `repeatMethod` in DB is `'expo'`
+3. Verify single Expo DAILY notification is scheduled
+4. Manually cancel the Expo notification (using `Notifications.cancelScheduledNotificationAsync()`)
+5. Verify notification no longer exists in platform
+6. Restart the app
+
+**Expected Results:**
+- App startup detects missing platform notification
+- Missing Expo repeating notification is rescheduled
+- Log shows: "Expo repeating notification missing for [id], will be handled by replenishers"
+- Single Expo DAILY notification exists after startup
+- Replenishers ensure notification is restored
+
+---
+
+### Test Case 9.5: Startup auto-heal - missing rolling-window instances
+**Objective:** Verify that app startup replenishes missing rolling-window notification instances
+
+**Prerequisites:**
+- Schedule a daily rolling-window notification
+- Manually cancel some instances but keep parent DB row
+
+**Steps:**
+1. Schedule a daily rolling-window notification
+2. Verify 14 DATE notification instances are scheduled
+3. Manually cancel 5 instances
+4. Verify only 9 instances remain
+5. Restart the app
+
+**Expected Results:**
+- App startup calls `ensureRollingWindowNotificationInstances()`
+- Missing rolling-window instances are rescheduled
+- Window size is restored to 14 instances
+- Log shows rescheduling activity
+
+---
+
+### Test Case 9.6: Startup auto-heal - missing daily alarm window instances
+**Objective:** Verify that app startup replenishes missing daily alarm window instances
+
+**Prerequisites:**
+- Schedule a daily notification with alarm (daily window strategy)
+- Manually cancel some alarm instances but keep parent DB row
+
+**Steps:**
+1. Schedule a daily notification with alarm
+2. Verify 14 alarm instances exist in `dailyAlarmInstance` table
+3. Manually cancel 5 alarm instances
+4. Verify only 9 instances remain
+5. Restart the app
+
+**Expected Results:**
+- App startup calls `ensureDailyAlarmWindowForAllNotifications()`
+- Missing daily alarm instances are rescheduled
+- Window size is restored to 14 alarms
+- Log shows rescheduling activity
+
+---
+
+### Test Case 9.7: Startup auto-heal - missing native recurring daily alarm
+**Objective:** Verify that app startup detects and handles missing native recurring daily alarms
+
+**Prerequisites:**
+- Schedule a daily notification with alarm using native recurring strategy (if implemented)
+- Manually cancel the recurring alarm but keep DB row
+
+**Steps:**
+1. Schedule a daily notification with native recurring alarm
+2. Verify recurring alarm exists in AlarmKit
+3. Manually cancel the recurring alarm
+4. Verify alarm no longer exists
+5. Restart the app
+
+**Expected Results:**
+- App startup detects missing recurring alarm
+- Missing recurring alarm is rescheduled (if supported)
+- Or log indicates that rescheduling is handled by scheduling logic
+- Recurring alarm exists after startup
+
+---
+
+### Test Case 9.8: Startup reconciliation - UX toggle (silent vs alert)
+**Objective:** Verify that UX toggle controls whether alerts are shown during reconciliation
+
+**Prerequisites:**
+- Set `orphanReconcileMode` preference
+
+**Steps:**
+1. Set `orphanReconcileMode` to `'silent'` (default)
+2. Create orphaned notification scenario
+3. Restart the app
+4. Verify no alert is shown
+5. Set `orphanReconcileMode` to `'alert'`
+6. Create another orphaned notification scenario
+7. Restart the app
+
+**Expected Results:**
+- When mode is `'silent'`: No alert shown, reconciliation happens silently
+- When mode is `'alert'`: Alert shown with reconciliation summary if actions were taken
+- Logs show reconciliation activity in both cases
+- `setOrphanReconcileMode()` function allows toggling the mode
+
+---
+
+### Test Case 9.9: Foreground reconciliation - lighter variant
+**Objective:** Verify that foreground reconciliation performs lighter checks (only cancel orphans + ensure DB-scheduled exist)
+
+**Prerequisites:**
+- App is running
+- Create orphaned notification scenario
+
+**Steps:**
+1. Schedule a notification
+2. Manually delete DB row
+3. Background the app
+4. Return app to foreground
+
+**Expected Results:**
+- Foreground reconciliation runs (`reconcileOrphansOnForeground()`)
+- Orphaned notifications are cancelled
+- Missing platform items are rescheduled
+- Lighter variant doesn't perform full DB cleanup sweep
+- Log shows foreground reconciliation activity
+
+---
+
+### Test Case 9.10: Reconciliation with permission denied
+**Objective:** Verify that reconciliation handles permission-denied scenarios gracefully
+
+**Prerequisites:**
+- Notification or alarm permissions denied
+
+**Steps:**
+1. Revoke notification permission
+2. Restart the app
+3. Verify reconciliation runs
+4. Restore notification permission
+5. Revoke alarm permission
+6. Restart the app
+
+**Expected Results:**
+- Reconciliation runs even with permissions denied
+- Orphan cancellation still works (cancelling doesn't require permissions)
+- Auto-heal is skipped when permissions are denied
+- Log shows permission status and skips rescheduling when appropriate
+- No errors thrown due to permission denial
+
+---
+
+## Begin-Date Correctness Scenarios
+
+### Test Case 10.1: Daily repeat - begin date >24h in future
+**Objective:** Verify that daily repeats scheduled with a begin date more than 24 hours in the future start exactly on that date, not earlier
+
+**Prerequisites:**
+- Current day is Monday
+- Schedule a daily repeat notification with alarm
+- Set begin date to Wednesday 9:30am (more than 24h in future)
+
+**Steps:**
+1. On Monday, schedule a daily repeat notification with alarm
+2. Set begin date to Wednesday 9:30am
+3. Verify notification appears in Upcoming tab
+4. Wait until Tuesday 9:30am
+5. Verify notification/alarm does NOT fire on Tuesday
+6. Wait until Wednesday 9:30am
+7. Verify notification/alarm fires on Wednesday
+
+**Expected Results:**
+- Notification/alarm does NOT fire on Tuesday (1 day early)
+- Notification/alarm fires exactly on Wednesday 9:30am (selected begin date)
+- Log shows: "using rollingWindow (selected date does not match next occurrence)" or similar
+- First scheduled occurrence in platform is exactly Wednesday 9:30am
+
+---
+
+### Test Case 10.2: Daily repeat - begin date <24h in future (next occurrence)
+**Objective:** Verify that daily repeats scheduled with a begin date that matches the next daily occurrence use Expo DAILY trigger correctly
+
+**Prerequisites:**
+- Current time is Monday 2:00pm
+- Schedule a daily repeat notification
+- Set begin date to Tuesday 9:30am (<24h but matches next occurrence)
+
+**Steps:**
+1. On Monday 2:00pm, schedule a daily repeat notification
+2. Set begin date to Tuesday 9:30am
+3. Verify notification appears in Upcoming tab
+4. Wait until Tuesday 9:30am
+5. Verify notification fires on Tuesday
+
+**Expected Results:**
+- Notification fires exactly on Tuesday 9:30am
+- Log shows: "using Expo DAILY trigger (selected date matches next occurrence)"
+- Expo DAILY trigger is used (not rolling window)
+
+---
+
+### Test Case 10.3: Weekly repeat - begin date = next week's weekday
+**Objective:** Verify that weekly repeats scheduled for next week's weekday do not fire this week
+
+**Prerequisites:**
+- Current day is Monday
+- Schedule a weekly repeat notification with alarm
+- Set begin date to next Wednesday 10:30am
+
+**Steps:**
+1. On Monday, schedule a weekly repeat notification with alarm
+2. Set begin date to next Wednesday 10:30am (7+ days in future)
+3. Verify notification appears in Upcoming tab
+4. Wait until this Wednesday 10:30am
+5. Verify notification/alarm does NOT fire this Wednesday
+6. Wait until next Wednesday 10:30am
+7. Verify notification/alarm fires on next Wednesday
+
+**Expected Results:**
+- Notification/alarm does NOT fire on this Wednesday (1 week early)
+- Notification/alarm fires exactly on next Wednesday 10:30am (selected begin date)
+- Log shows: "using rollingWindow (selected date does not match next occurrence)"
+- First scheduled occurrence in platform is exactly next Wednesday 10:30am
+- Expo WEEKLY trigger weekday mapping is correct (expoWeekday logged)
+
+---
+
+### Test Case 10.4: Weekly repeat - begin date = this week's weekday (next occurrence)
+**Objective:** Verify that weekly repeats scheduled for this week's weekday use Expo WEEKLY trigger correctly
+
+**Prerequisites:**
+- Current day is Monday
+- Schedule a weekly repeat notification
+- Set begin date to this Wednesday 10:30am (matches next weekly occurrence)
+
+**Steps:**
+1. On Monday, schedule a weekly repeat notification
+2. Set begin date to this Wednesday 10:30am
+3. Verify notification appears in Upcoming tab
+4. Wait until Wednesday 10:30am
+5. Verify notification fires on Wednesday
+
+**Expected Results:**
+- Notification fires exactly on Wednesday 10:30am
+- Log shows: "using Expo WEEKLY trigger (selected date matches next occurrence)"
+- Expo WEEKLY trigger is used with correct weekday mapping (expoWeekday: 4 for Wednesday)
+- Not rolling window
+
+---
+
+### Test Case 10.5: Calendar flow - event repeats Tue, user changes to Wed
+**Objective:** Verify that when a calendar event repeats on Tuesday but user changes begin date to Wednesday, it does not fire on Tuesday
+
+**Prerequisites:**
+- Calendar event repeats every Tuesday
+- User imports event and modifies begin date to Wednesday
+
+**Steps:**
+1. Import calendar event that repeats every Tuesday
+2. Modify begin date to Wednesday (same week or next week)
+3. Schedule notification with alarm
+4. Wait until Tuesday
+5. Verify notification/alarm does NOT fire on Tuesday
+6. Wait until Wednesday
+7. Verify notification/alarm fires on Wednesday
+
+**Expected Results:**
+- Notification/alarm does NOT fire on Tuesday (original calendar day)
+- Notification/alarm fires exactly on Wednesday (user-selected begin date)
+- Log shows correct weekday mapping and strategy selection
+- First occurrence is exactly on selected Wednesday
+
+---
+
+### Test Case 10.6: Monthly repeat - begin date correctness
+**Objective:** Verify that monthly repeats begin exactly on the selected date
+
+**Prerequisites:**
+- Current date is January 15th
+- Schedule a monthly repeat notification
+- Set begin date to March 15th (more than 1 month in future)
+
+**Steps:**
+1. On January 15th, schedule a monthly repeat notification
+2. Set begin date to March 15th
+3. Verify notification appears in Upcoming tab
+4. Wait until February 15th
+5. Verify notification does NOT fire in February
+6. Wait until March 15th
+7. Verify notification fires on March 15th
+
+**Expected Results:**
+- Notification does NOT fire in February (1 month early)
+- Notification fires exactly on March 15th (selected begin date)
+- First occurrence is exactly on selected date
+
+---
+
+### Test Case 10.7: Yearly repeat - begin date correctness
+**Objective:** Verify that yearly repeats begin exactly on the selected date and month mapping is correct
+
+**Prerequisites:**
+- Current date is January 2024
+- Schedule a yearly repeat notification
+- Set begin date to March 2025 (more than 1 year in future)
+
+**Steps:**
+1. In January 2024, schedule a yearly repeat notification
+2. Set begin date to March 15, 2025
+3. Verify notification appears in Upcoming tab
+4. Wait until March 2024
+5. Verify notification does NOT fire in March 2024
+6. Wait until March 2025
+7. Verify notification fires on March 15, 2025
+
+**Expected Results:**
+- Notification does NOT fire in March 2024 (1 year early)
+- Notification fires exactly on March 15, 2025 (selected begin date)
+- Log shows correct month mapping (expoMonth: 3 for March, not 2)
+- First occurrence is exactly on selected date
+
+---
+
+### Test Case 10.8: Daily alarm window - begin date correctness
+**Objective:** Verify that daily alarm windows start exactly on the selected begin date
+
+**Prerequisites:**
+- Current day is Monday
+- Schedule a daily repeat notification with alarm
+- Set begin date to Wednesday 9:30am
+
+**Steps:**
+1. On Monday, schedule a daily repeat notification with alarm
+2. Set begin date to Wednesday 9:30am
+3. Verify 14 alarm instances are scheduled
+4. Check first alarm instance fireDateTime in DB
+5. Wait until Tuesday 9:30am
+6. Verify alarm does NOT fire on Tuesday
+7. Wait until Wednesday 9:30am
+8. Verify alarm fires on Wednesday
+
+**Expected Results:**
+- First alarm instance fireDateTime in DB is exactly Wednesday 9:30am
+- Alarm does NOT fire on Tuesday (1 day early)
+- Alarm fires exactly on Wednesday 9:30am (selected begin date)
+- All 14 alarm instances are scheduled starting from Wednesday
+
+---
+
+### Test Case 10.9: Rolling-window notification instances - begin date correctness
+**Objective:** Verify that rolling-window notification instances start exactly on the selected begin date
+
+**Prerequisites:**
+- Current day is Monday
+- Schedule a daily rolling-window notification
+- Set begin date to Wednesday 9:30am
+
+**Steps:**
+1. On Monday, schedule a daily rolling-window notification
+2. Set begin date to Wednesday 9:30am
+3. Verify 14 notification instances are scheduled
+4. Check first instance fireDateTime in DB
+5. Check platform scheduled notifications
+6. Wait until Tuesday 9:30am
+7. Verify notification does NOT fire on Tuesday
+8. Wait until Wednesday 9:30am
+9. Verify notification fires on Wednesday
+
+**Expected Results:**
+- First instance fireDateTime in DB is exactly Wednesday 9:30am
+- First platform scheduled notification is exactly Wednesday 9:30am
+- Notification does NOT fire on Tuesday (1 day early)
+- Notification fires exactly on Wednesday 9:30am (selected begin date)
+- All 14 instances are scheduled starting from Wednesday
+
+---
+
+### Test Case 10.10: Logging and observability
+**Objective:** Verify that scheduling logs include begin-date correctness information
+
+**Prerequisites:**
+- Schedule various repeat notifications with different begin dates
+
+**Steps:**
+1. Schedule daily repeat with begin date >24h in future
+2. Schedule daily repeat with begin date matching next occurrence
+3. Schedule weekly repeat with begin date = next week
+4. Schedule weekly repeat with begin date = this week
+5. Check logs for each scheduling operation
+
+**Expected Results:**
+- Logs show selected begin date (ISO and local)
+- Logs show computed next occurrence (for daily/weekly)
+- Logs show chosen strategy (Expo repeat vs rolling window)
+- Logs show weekday/month mapping values (expoWeekday, expoMonth)
+- Logs show reason for strategy selection (matches next occurrence vs doesn't match)
+
+---
+
+## Past Tab Drawer Height Scenarios
+
+### Test Case 11.1: Past drawer - note with blank lines
+**Objective:** Verify that Past tab reveal drawer expands to show entire note including blank lines
+
+**Prerequisites:**
+- A notification exists in Past tab (archived or repeat occurrence)
+- Notification has a note with blank lines (e.g., "Line 1\n\nLine 2")
+
+**Steps:**
+1. Navigate to Past tab
+2. Find notification with note containing blank lines
+3. Tap reveal symbol (chevron) to expand drawer
+4. Observe drawer height and note content
+
+**Expected Results:**
+- Drawer expands to full height showing entire note
+- Blank line between "Line 1" and "Line 2" is visible
+- "Line 2" is fully visible (not cut off)
+- Drawer height is stable on first expand (no "measured too small then stuck")
+
+---
+
+### Test Case 11.2: Past drawer - note with many newlines
+**Objective:** Verify that Past tab drawer scales correctly for notes with multiple paragraphs
+
+**Prerequisites:**
+- A notification exists in Past tab
+- Notification has a note with 6-10 lines including blank lines
+
+**Steps:**
+1. Navigate to Past tab
+2. Find notification with multi-paragraph note
+3. Tap reveal symbol to expand drawer
+4. Scroll within drawer if needed
+5. Verify all lines are visible
+
+**Expected Results:**
+- Drawer expands to accommodate all note content
+- All lines including blank lines are visible
+- No content is cut off at bottom
+- Drawer height accurately reflects full content height
+
+---
+
+### Test Case 11.3: Past drawer - mixed content (repeat + note + link)
+**Objective:** Verify that Past tab drawer includes all expandable content rows in height calculation
+
+**Prerequisites:**
+- A notification exists in Past tab
+- Notification has repeat option, note with blank lines, and link
+
+**Steps:**
+1. Navigate to Past tab
+2. Find notification with repeat + note + link
+3. Tap reveal symbol to expand drawer
+4. Verify all content is visible
+
+**Expected Results:**
+- Drawer expands to show all rows (repeat, note, link)
+- Note with blank lines displays fully
+- All content is visible without scrolling
+- Drawer height includes all rows plus padding
+
+---
+
+### Test Case 11.4: Upcoming drawer - note with blank lines
+**Objective:** Verify that Upcoming tab reveal drawer also handles blank lines correctly
+
+**Prerequisites:**
+- A scheduled notification exists in Upcoming tab
+- Notification has a note with blank lines
+
+**Steps:**
+1. Navigate to Upcoming tab
+2. Find scheduled notification with note containing blank lines
+3. Tap reveal symbol to expand drawer
+4. Observe drawer height and note content
+
+**Expected Results:**
+- Drawer expands to full height showing entire note
+- Blank lines are visible
+- All note content is visible (not cut off)
+- Drawer height is stable on first expand
+
+---
+
+### Test Case 11.5: Drawer height measurement - first expand accuracy
+**Objective:** Verify that drawer height is measured correctly on first expand (not constrained by animation)
+
+**Prerequisites:**
+- Notification in Past or Upcoming tab with note containing blank lines
+
+**Steps:**
+1. Navigate to appropriate tab
+2. Find notification with multi-line note
+3. Tap reveal symbol to expand drawer (first time)
+4. Observe if drawer height is correct immediately
+5. Collapse and expand again
+6. Verify height is consistent
+
+**Expected Results:**
+- Drawer height is correct on first expand (not too small)
+- Height is consistent on subsequent expands
+- No "jump" or resize after initial measurement
+- Measurement view correctly calculates full content height
+
+---
+
+## Past Tab Drawer - Repeat Occurrence Display
+
+### Test Case 12.1: Past drawer - repeat occurrence shows Repeat row
+**Objective:** Verify that Past tab reveal drawer for repeat occurrences displays the Repeat row with correct formatting
+
+**Prerequisites:**
+- A daily repeat notification has fired at least once
+- The repeat occurrence appears in Past tab
+
+**Steps:**
+1. Navigate to Past tab
+2. Find a repeat occurrence item (from a daily/weekly/monthly/yearly repeat)
+3. Tap reveal symbol (chevron) to expand drawer
+4. Observe drawer content
+
+**Expected Results:**
+- Drawer shows "Repeat:" label
+- Drawer shows formatted repeat string (e.g., "Repeats daily at 10:00 AM")
+- Repeat information is displayed even if parent notification was deleted/archived
+- Format matches expected format for the repeat type (daily/weekly/monthly/yearly)
+
+---
+
+### Test Case 12.2: Past drawer - repeat occurrence with note shows both Repeat and Note rows
+**Objective:** Verify that Past tab drawer for repeat occurrences displays both Repeat and Note rows correctly
+
+**Prerequisites:**
+- A daily repeat notification with a note containing blank lines has fired
+- The note format is: "Line 1\n\nLine 2"
+
+**Steps:**
+1. Navigate to Past tab
+2. Find the repeat occurrence item
+3. Tap reveal symbol to expand drawer
+4. Verify all content is visible
+
+**Expected Results:**
+- Drawer shows "Repeat:" row with formatted repeat string
+- Drawer shows "Note:" row
+- Note displays full content including blank line between "Line 1" and "Line 2"
+- "Line 2" is fully visible (not cut off)
+- Drawer height accommodates all content (Repeat + Note rows)
+
+---
+
+### Test Case 12.3: Past drawer - ID collision prevention
+**Objective:** Verify that Past tab drawer state (expanded/collapsed, height) is not affected by ID collisions between archived and repeat occurrence items
+
+**Prerequisites:**
+- Both archivedNotification and repeatNotificationOccurrence tables have items with the same numeric ID (e.g., both have id=1)
+
+**Steps:**
+1. Navigate to Past tab
+2. Expand the archived item with id=1
+3. Collapse it
+4. Expand the repeat occurrence item with id=1
+5. Verify drawer state is independent
+
+**Expected Results:**
+- Expanding archived item does not affect repeat occurrence item
+- Expanding repeat occurrence item does not affect archived item
+- Each item maintains its own drawer height measurement
+- No state leakage between items with same numeric ID
+
+---
+
+## Notification Detail Screen Navigation
+
+### Test Case 13.1: System notification tap - daily repeat with alarm (no reopen loop)
+**Objective:** Verify that tapping a system notification for a daily repeat notification with alarm opens the detail screen once and does not reopen after closing
+
+**Prerequisites:**
+- A daily repeat notification with alarm enabled is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the daily repeat notification to fire
+2. Tap the system notification banner/lockscreen notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes
+6. Wait 2-3 seconds
+7. Verify detail screen does NOT reopen automatically
+
+**Expected Results:**
+- Detail screen opens once when notification is tapped
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+- No loop of closing and reopening
+
+---
+
+### Test Case 13.2: System notification tap - weekly repeat with alarm (no reopen loop)
+**Objective:** Verify that tapping a system notification for a weekly repeat notification with alarm does not cause reopen loop
+
+**Prerequisites:**
+- A weekly repeat notification with alarm enabled is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the weekly repeat notification to fire
+2. Tap the system notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Detail screen opens once
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+
+---
+
+### Test Case 13.3: System notification tap - one-time notification (no regression)
+**Objective:** Verify that one-time notifications continue to work correctly (no regression)
+
+**Prerequisites:**
+- A one-time notification (no repeat, no alarm) is scheduled
+- Notification has fired and appears as a system notification
+
+**Steps:**
+1. Wait for the one-time notification to fire
+2. Tap the system notification
+3. Verify notification detail screen opens
+4. Tap the Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Detail screen opens once
+- Detail screen closes when Close button is tapped
+- Detail screen does NOT reopen after closing
+- Behavior matches previous working state
+
+---
+
+### Test Case 13.4: Multiple notification responses deduplication
+**Objective:** Verify that multiple notification responses for the same parent notification are deduplicated correctly
+
+**Prerequisites:**
+- A daily repeat notification with alarm enabled is scheduled
+- Both notification and alarm fire at the same time (or very close together)
+
+**Steps:**
+1. Wait for the notification and alarm to fire simultaneously
+2. Tap one of the system notifications
+3. Verify detail screen opens once (not multiple times)
+4. Tap Close button
+5. Verify detail screen closes and does NOT reopen
+
+**Expected Results:**
+- Only one detail screen opens even if multiple notification responses are received
+- Detail screen closes normally
+- No reopen loop occurs
+- Deduplication works based on parent notification ID, not instance IDs
+
+---
+
+## Cold Start Notification Navigation
+
+### Test Case 14.1: Cold start - notification tap shows detail screen (production build)
+**Objective:** Verify that tapping a notification on cold start (app closed) navigates to notification detail screen, not home screen
+
+**Prerequisites:**
+- App is completely closed (not in background)
+- A one-time notification is scheduled and has fired
+- Test in production build (no dev menu)
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification to fire
+3. Tap the notification banner/lockscreen notification
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content (title, message, note, link)
+- User can close detail screen and navigate normally
+
+---
+
+### Test Case 14.2: Cold start - notification tap shows detail screen (dev build with dev menu)
+**Objective:** Verify that tapping a notification on cold start works correctly even when Expo dev menu appears
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification is scheduled and has fired
+- Test in dev build (`npx expo run:ios --device`)
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification to fire
+3. Tap the notification banner/lockscreen notification
+4. Observe Expo dev menu appears
+5. Dismiss the dev menu
+6. Observe app screen
+
+**Expected Results:**
+- Splash screen appears
+- Expo dev menu appears on top
+- After dismissing dev menu, notification detail screen is visible (NOT home screen)
+- Detail screen shows correct notification content
+- User can close detail screen and navigate normally
+
+---
+
+### Test Case 14.3: Cold start - repeat notification tap shows detail screen
+**Objective:** Verify that tapping a repeat notification on cold start also shows detail screen correctly
+
+**Prerequisites:**
+- App is completely closed
+- A daily repeat notification is scheduled and has fired
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for daily repeat notification to fire
+3. Tap the notification banner
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- No reopen loop occurs when closing detail screen
+
+---
+
+### Test Case 14.4: App icon launch - shows home screen (no regression)
+**Objective:** Verify that opening app via app icon still shows home screen (not affected by notification navigation changes)
+
+**Prerequisites:**
+- App is completely closed
+- No pending notifications
+
+**Steps:**
+1. Ensure app is completely closed
+2. Tap the app icon (not a notification)
+3. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Home screen appears (NOT notification detail screen)
+- App functions normally
+- No navigation to notification detail screen
+
+---
+
+### Test Case 14.5: Foreground notification tap - shows detail screen as modal (no regression)
+**Objective:** Verify that tapping a notification when app is running continues to work correctly
+
+**Prerequisites:**
+- App is running in foreground or background
+- A notification fires
+
+**Steps:**
+1. Ensure app is running (foreground or background)
+2. Wait for notification to fire
+3. Tap the notification banner
+4. Observe navigation behavior
+
+**Expected Results:**
+- Notification detail screen appears as modal overlay
+- Detail screen shows correct notification content
+- User can close detail screen and return to previous screen
+- Behavior matches previous working state
+
+---
+
+### Test Case 14.6: Cold start - notification WITHOUT alarm
+**Objective:** Verify that tapping a notification without alarm on cold start shows detail screen
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITHOUT alarm is scheduled and has fired
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification (without alarm) to fire
+3. Tap the notification banner immediately
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- No home screen flash before detail screen
+
+---
+
+### Test Case 14.7: Cold start - notification WITH alarm (tap banner directly)
+**Objective:** Verify that tapping a notification banner directly (without closing alarm first) on cold start shows detail screen
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITH alarm is scheduled and has fired
+- Alarm is currently showing/active
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification with alarm to fire
+3. Tap the notification banner directly (DO NOT close alarm first)
+4. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- No home screen flash before detail screen
+- Works even when alarm is still active
+
+---
+
+### Test Case 14.8: Cold start - notification WITH alarm (close alarm then tap banner)
+**Objective:** Verify that closing alarm first then tapping notification banner still works (regression test)
+
+**Prerequisites:**
+- App is completely closed
+- A one-time notification WITH alarm is scheduled and has fired
+- Test in production build
+
+**Steps:**
+1. Ensure app is completely closed
+2. Wait for notification with alarm to fire
+3. Close/dismiss the alarm first
+4. Then tap the notification banner
+5. Observe app launch sequence
+
+**Expected Results:**
+- Splash screen appears briefly
+- Notification detail screen appears (NOT home screen)
+- Detail screen shows correct notification content
+- Behavior matches previous working state (no regression)
+

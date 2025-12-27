@@ -1340,6 +1340,8 @@ const clampDayOfMonth = (year: number, month: number, day: number): number => {
 };
 
 // Generate occurrence dates for rolling-window notifications
+// CRITICAL: First occurrence must be exactly startDate (with hour/minute set)
+// This ensures repeats begin on the user-selected date
 export const generateOccurrenceDates = (
   startDate: Date,
   repeatOption: 'daily' | 'weekly' | 'monthly' | 'yearly',
@@ -1351,12 +1353,15 @@ export const generateOccurrenceDates = (
   const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
   const dates: Date[] = [];
 
+  // Start from the exact startDate with hour/minute set
+  // This is the user-selected begin date - we must honor it exactly
   let currentDate = new Date(startDate);
   currentDate.setHours(hour, minute, 0, 0);
 
-  // Ensure we start from startDate, but skip if it's in the past
+  // Only skip startDate if it's truly in the past (less than 1 minute from now)
+  // If startDate is in the future, we MUST include it as the first occurrence
   if (currentDate <= oneMinuteFromNow) {
-    // Move to next occurrence
+    // StartDate is in the past, move to next occurrence
     if (repeatOption === 'daily') {
       currentDate.setDate(currentDate.getDate() + 1);
     } else if (repeatOption === 'weekly') {
@@ -1375,6 +1380,7 @@ export const generateOccurrenceDates = (
       currentDate.setDate(clampedDay);
     }
   }
+  // If startDate is in the future, currentDate is already set correctly to startDate
 
   for (let i = 0; i < count; i++) {
     const occurrenceDate = new Date(currentDate);
@@ -1562,6 +1568,11 @@ export const migrateRollingWindowRepeatsToExpo = async (): Promise<void> => {
         const dayOfWeek = startDate.getDay();
         const month = startDate.getMonth();
 
+        // Import mapping helpers
+        const { mapJsWeekdayToExpoWeekday, mapJsMonthToExpoMonth } = await import('./repeat-start-date');
+        const expoWeekday = mapJsWeekdayToExpoWeekday(dayOfWeek);
+        const expoMonth = mapJsMonthToExpoMonth(month);
+
         let expoTrigger: Notifications.NotificationTriggerInput;
         switch (notification.repeatOption) {
           case 'daily':
@@ -1574,7 +1585,7 @@ export const migrateRollingWindowRepeatsToExpo = async (): Promise<void> => {
           case 'weekly':
             expoTrigger = {
               type: Notifications.SchedulableTriggerInputTypes.WEEKLY,
-              weekday: dayOfWeek,
+              weekday: expoWeekday,
               hour: hour,
               minute: minute,
             };
@@ -1590,7 +1601,7 @@ export const migrateRollingWindowRepeatsToExpo = async (): Promise<void> => {
           case 'yearly':
             expoTrigger = {
               type: Notifications.SchedulableTriggerInputTypes.YEARLY,
-              month: month,
+              month: expoMonth,
               day: day,
               hour: hour,
               minute: minute,
@@ -1933,15 +1944,21 @@ export const scheduleDailyAlarmWindow = async (
   const oneMinuteFromNow = new Date(now.getTime() + 60 * 1000);
 
   // Calculate dates for the next 14 occurrences
+  // CRITICAL: First alarm must be exactly on baseDate (with hour/minute set)
+  // This ensures daily alarms begin on the user-selected date
   const dates: Date[] = [];
   let currentDate = new Date(baseDate);
+  currentDate.setHours(time.hour, time.minute, 0, 0);
 
-  // Ensure we start from baseDate, but skip if it's in the past
+  // Only skip baseDate if it's truly in the past (less than 1 minute from now)
+  // If baseDate is in the future, we MUST include it as the first alarm
   if (currentDate <= oneMinuteFromNow) {
-    // Start from tomorrow if baseDate has passed
+    // baseDate is in the past, start from tomorrow
     currentDate = new Date(baseDate);
+    currentDate.setHours(time.hour, time.minute, 0, 0);
     currentDate.setDate(currentDate.getDate() + 1);
   }
+  // If baseDate is in the future, currentDate is already set correctly to baseDate
 
   for (let i = 0; i < count; i++) {
     const alarmDate = new Date(currentDate);
@@ -2153,6 +2170,77 @@ export const getRepeatOccurrences = async (limit?: number, sinceIso?: string): P
     return result || [];
   } catch (error: any) {
     logger.error(makeLogHeader(LOG_FILE, 'getRepeatOccurrences'), 'Failed to get repeat occurrences:', error);
+    return [];
+  }
+};
+
+// Get repeat occurrences with parent metadata (for Past tab - includes repeatOption and scheduleDateTime)
+export const getRepeatOccurrencesWithParentMeta = async (limit?: number, sinceIso?: string): Promise<Array<{
+  id: number;
+  parentNotificationId: string;
+  fireDateTime: string;
+  recordedAt: string;
+  source: string;
+  title: string;
+  message: string;
+  note: string | null;
+  link: string | null;
+  parentRepeatOption: string | null;
+  parentScheduleDateTime: string | null;
+}>> => {
+  try {
+    const db = await openDatabase();
+    await initDatabase();
+
+    const escapeSql = (str: string) => str.replace(/'/g, "''");
+
+    // LEFT JOIN with both scheduledNotification and archivedNotification
+    // Use COALESCE to prefer scheduledNotification, fallback to archivedNotification
+    let query = `
+      SELECT 
+        ro.id,
+        ro.parentNotificationId,
+        ro.fireDateTime,
+        ro.recordedAt,
+        ro.source,
+        ro.title,
+        ro.message,
+        ro.note,
+        ro.link,
+        COALESCE(sn.repeatOption, an.repeatOption) as parentRepeatOption,
+        COALESCE(sn.scheduleDateTime, an.scheduleDateTime) as parentScheduleDateTime
+      FROM repeatNotificationOccurrence ro
+      LEFT JOIN scheduledNotification sn ON ro.parentNotificationId = sn.notificationId
+      LEFT JOIN archivedNotification an ON ro.parentNotificationId = an.notificationId
+    `;
+
+    if (sinceIso) {
+      query += ` WHERE ro.fireDateTime >= '${escapeSql(sinceIso)}'`;
+    }
+
+    query += ` ORDER BY ro.fireDateTime DESC`;
+
+    if (limit) {
+      query += ` LIMIT ${limit}`;
+    }
+
+    const result = await db.getAllAsync<{
+      id: number;
+      parentNotificationId: string;
+      fireDateTime: string;
+      recordedAt: string;
+      source: string;
+      title: string;
+      message: string;
+      note: string | null;
+      link: string | null;
+      parentRepeatOption: string | null;
+      parentScheduleDateTime: string | null;
+    }>(query);
+
+    return result || [];
+  } catch (error: any) {
+    logger.error(makeLogHeader(LOG_FILE, 'getRepeatOccurrencesWithParentMeta'), 'Failed to get repeat occurrences with parent metadata:', error);
     return [];
   }
 };

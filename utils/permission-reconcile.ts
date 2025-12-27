@@ -1,7 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import { Alert } from 'react-native';
-import { logger, makeLogHeader } from './logger';
-import { notificationRefreshEvents } from './notification-refresh-events';
+import { NativeAlarmManager } from 'rn-native-alarmkit';
 import { cancelAlarmKitForParent, cancelExpoForParent } from './cancel-scheduling';
 import {
   archiveAllScheduledNotificationsAsCancelled,
@@ -16,6 +15,8 @@ import {
   setAppPreference,
   updateScheduledNotificationData,
 } from './database';
+import { logger, makeLogHeader } from './logger';
+import { notificationRefreshEvents } from './notification-refresh-events';
 
 const LOG_FILE = 'utils/permission-reconcile.ts';
 
@@ -41,23 +42,23 @@ async function getCurrentNotificationPermission(): Promise<NotificationPermissio
 async function getCurrentAlarmPermission(): Promise<AlarmPermissionState> {
   try {
     const capability = await NativeAlarmManager.checkCapability();
-    
+
     // If capability is 'none', alarms are not supported
     if (capability.capability === 'none') {
       return 'notSupported';
     }
-    
+
     // If permission is not required, consider it authorized
     if (!capability.requiresPermission) {
       return 'authorized';
     }
-    
+
     // Check auth status
     const authStatus = capability.platformDetails?.alarmKitAuthStatus;
     if (authStatus === 'authorized') {
       return 'authorized';
     }
-    
+
     return 'denied';
   } catch (error) {
     logger.error(makeLogHeader(LOG_FILE, 'getCurrentAlarmPermission'), 'Failed to get alarm capability:', error);
@@ -75,7 +76,7 @@ async function cleanupNotificationPermissionRemoved(t: (key: string) => string):
   try {
     // Get all scheduled notifications before cleanup
     const scheduledNotifications = await getAllScheduledNotificationData();
-    
+
     // Cancel all Expo notifications (comprehensive sweep)
     try {
       await Notifications.cancelAllScheduledNotificationsAsync();
@@ -112,7 +113,7 @@ async function cleanupNotificationPermissionRemoved(t: (key: string) => string):
           } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (!errorMessage.includes('not found') && !errorMessage.includes('ALARM_NOT_FOUND')) {
-              logger.warn(makeLogHeader(LOG_FILE, 'cleanupNotificationPermissionRemoved'), `Failed to cancel daily alarm instance ${instance.alarmId} from DB sweep:`, error);
+              logger.error(makeLogHeader(LOG_FILE, 'cleanupNotificationPermissionRemoved'), `Failed to cancel daily alarm instance ${instance.alarmId} from DB sweep:`, error);
             }
           }
         }
@@ -166,7 +167,7 @@ async function cleanupAlarmPermissionRemoved(t: (key: string) => string): Promis
     for (const notification of scheduledNotifications) {
       // Always attempt cancellation regardless of hasAlarm flag (idempotent)
       await cancelAlarmKitForParent(notification.notificationId, notification.repeatOption);
-      
+
       // Update hasAlarm to false in database (only if it was true)
       if (notification.hasAlarm) {
         await updateScheduledNotificationData(
@@ -201,7 +202,7 @@ async function cleanupAlarmPermissionRemoved(t: (key: string) => string): Promis
           } catch (error: any) {
             const errorMessage = error instanceof Error ? error.message : String(error);
             if (!errorMessage.includes('not found') && !errorMessage.includes('ALARM_NOT_FOUND')) {
-              logger.warn(makeLogHeader(LOG_FILE, 'cleanupAlarmPermissionRemoved'), `Failed to cancel daily alarm instance ${instance.alarmId} from DB sweep:`, error);
+              logger.error(makeLogHeader(LOG_FILE, 'cleanupAlarmPermissionRemoved'), `Failed to cancel daily alarm instance ${instance.alarmId} from DB sweep:`, error);
             }
           }
         }

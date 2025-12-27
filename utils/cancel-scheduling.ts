@@ -74,7 +74,11 @@ export async function cancelAlarmKitForParent(
 ): Promise<void> {
   try {
     if (repeatOption === 'daily') {
-      // For daily alarms, fetch ALL instances (including inactive) for robust cancellation
+      // For daily alarms, handle both strategies:
+      // 1. Daily window: multiple fixed alarms tracked in dailyAlarmInstance table
+      // 2. Native recurring daily: single recurring alarm with derived alarm ID
+      
+      // Cancel all daily window instances
       const allInstances = await getAllDailyAlarmInstances(notificationId);
       
       logger.info(makeLogHeader(LOG_FILE, 'cancelAlarmKitForParent'), `Found ${allInstances.length} daily alarm instance(s) for ${notificationId}`);
@@ -101,6 +105,22 @@ export async function cancelAlarmKitForParent(
             logger.warn(makeLogHeader(LOG_FILE, 'cancelAlarmKitForParent'), `Failed to cancel daily alarm instance ${instance.alarmId}:`, error);
             // Don't mark as cancelled if cancellation failed
           }
+        }
+      }
+
+      // Also cancel native recurring daily alarm if it exists (derived alarm ID)
+      // This covers the case where a daily alarm uses native recurring instead of window strategy
+      const derivedAlarmId = notificationId.substring('thenotifier-'.length);
+      try {
+        await NativeAlarmManager.cancelAlarm(derivedAlarmId);
+        logger.info(makeLogHeader(LOG_FILE, 'cancelAlarmKitForParent'), `Cancelled native recurring daily alarm: ${derivedAlarmId}`);
+      } catch (error: any) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        // Ignore "not found" errors - alarm may not exist or already cancelled
+        if (!errorMessage.includes('not found') && !errorMessage.includes('ALARM_NOT_FOUND')) {
+          logger.warn(makeLogHeader(LOG_FILE, 'cancelAlarmKitForParent'), `Failed to cancel native recurring daily alarm ${derivedAlarmId}:`, error);
+        } else {
+          logger.info(makeLogHeader(LOG_FILE, 'cancelAlarmKitForParent'), `Native recurring daily alarm ${derivedAlarmId} not found (may not exist or already cancelled)`);
         }
       }
     } else {
